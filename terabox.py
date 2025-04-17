@@ -6,9 +6,11 @@ import os
 import logging
 import math
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, CallbackQuery
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait, MessageDeleteForbidden
+from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+import asyncio  # For asyncio.TimeoutError
 from pymongo import MongoClient
 import time
 import threading
@@ -18,6 +20,8 @@ from urllib.parse import urlparse
 import requests
 
 OWNER_ID = 7663297585
+ADMINS = [OWNER_ID]  # Add more admin IDs as needed
+
 
 load_dotenv('config.env', override=True)
 logging.basicConfig(
@@ -238,6 +242,283 @@ start_time = datetime.now()
 download_count = 0
 total_download_size = 0
 
+async def get_settings():
+    """Get bot settings from database"""
+    settings_doc = db.get_collection("settings").find_one({"_id": "bot_settings"})
+    
+    if not settings_doc:
+        # Create default settings if none exist
+        default_settings = {
+            "_id": "bot_settings",
+            "FORCE_SUB_CHANNELS": [FSUB_ID],  # Use your existing FSUB_ID
+            "REQUEST_SUB_CHANNELS": [-1002631104533]  # Default channel that requires approval
+        }
+        db.get_collection("settings").insert_one(default_settings)
+        return default_settings
+    
+    # If settings exist but REQUEST_SUB_CHANNELS is empty or doesn't exist, add the default channel
+    if "REQUEST_SUB_CHANNELS" not in settings_doc or not settings_doc["REQUEST_SUB_CHANNELS"]:
+        db.get_collection("settings").update_one(
+            {"_id": "bot_settings"},
+            {"$set": {"REQUEST_SUB_CHANNELS": [-1002631104533]}}
+        )
+        settings_doc["REQUEST_SUB_CHANNELS"] = [-1002631104533]
+    
+    return settings_doc
+
+
+async def set_setting(key, value):
+    """Update a specific setting in the database"""
+    result = db.get_collection("settings").update_one(
+        {"_id": "bot_settings"},
+        {"$set": {key: value}},
+        upsert=True
+    )
+    return result.modified_count > 0
+
+# Add the callback handlers
+@app.on_callback_query(filters.regex("^manage_forcesub$"))
+async def manage_forcesub_callback(client, callback_query: CallbackQuery):
+    if callback_query.from_user.id not in ADMINS:
+        await callback_query.answer("Yᴏᴜ Aʀᴇ Nᴏᴛ Aᴅᴍɪɴ ✖", show_alert=True)
+        return
+    
+    settings = await get_settings()
+    normal_channels = settings.get("FORCE_SUB_CHANNELS", [])
+    request_channels = settings.get("REQUEST_SUB_CHANNELS", [])
+    
+    text = "📢 **Fᴏʀᴄᴇ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ Sᴇᴛᴛɪɴɢs**\n\n"
+    
+    if normal_channels:
+        text += "🔹 **Normal Join Channels:**\n"
+        for ch in normal_channels:
+            try:
+                chat = await client.get_chat(ch)
+                link = f"https://t.me/{chat.username}" if chat.username else await client.export_chat_invite_link(ch)
+                text += f"• [{chat.title}]({link})\n"
+            except Exception as e:
+                text += f"• `{ch}` (❌ Failed to fetch)\n"
+    else:
+        text += "❌ No normal join channels.\n"
+    
+    text += "\n"
+    
+    if request_channels:
+        text += "🔸 **Request Join Channels:**\n"
+        for ch in request_channels:
+            try:
+                chat = await client.get_chat(ch)
+                link = chat.invite_link or await client.export_chat_invite_link(ch)
+                text += f"• [{chat.title}]({link}) (Request Join)\n"
+            except Exception as e:
+                text += f"• `{ch}` (❌ Failed to fetch)\n"
+    else:
+        text += "❌ No request join channels.\n"
+    
+    text += "\n⚠️ **Pʟᴇᴀsᴇ Rᴇsᴛᴀʀᴛ Tʜᴇ Bᴏᴛ Aғᴛᴇʀ Uᴘᴅᴀᴛɪɴɢ Cʜᴀɴɴᴇʟs!**"
+    
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("➕ Nᴏʀᴍᴀʟ Cʜᴀɴɴᴇʟ", callback_data="add_normal_channel"),
+            InlineKeyboardButton("➕ Rᴇǫᴜᴇsᴛ Cʜᴀɴɴᴇʟ", callback_data="add_request_channel")
+        ],
+        [
+            InlineKeyboardButton("➖ Rᴇᴍᴏᴠᴇ Nᴏʀᴍᴀʟ", callback_data="remove_normal_channel"),
+            InlineKeyboardButton("➖ Rᴇᴍᴏᴠᴇ Rᴇǫᴜᴇsᴛ", callback_data="remove_request_channel")
+        ],
+        [InlineKeyboardButton("◀️ Bᴀᴄᴋ", callback_data="back_to_main")]
+    ])
+    
+    await callback_query.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+
+@app.on_callback_query(filters.regex("^add_normal_channel$"))
+async def add_normal_channel(client, callback_query: CallbackQuery):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Yᴏᴜ Aʀᴇ Nᴏᴛ Aᴅᴍɪɴ ✖", show_alert=True)
+    
+    await callback_query.message.edit_text("📥 **Send the Normal Channel Username or ID:**")
+    await callback_query.answer()
+    
+    try:
+        response = await client.listen(callback_query.from_user.id, timeout=60)
+        channel = response.text.strip()
+        
+        if channel.replace("-", "").isdigit():
+            channel = int(channel)
+        
+        settings = await get_settings()
+        normal_channels = settings.get("FORCE_SUB_CHANNELS", [])
+        
+        if channel in normal_channels:
+            return await client.send_message(callback_query.from_user.id, "⚠️ Channel already in the list.")
+        
+        normal_channels.append(channel)
+        await set_setting("FORCE_SUB_CHANNELS", normal_channels)
+        await client.send_message(callback_query.from_user.id, f"✅ **Added `{channel}` to normal channels.**")
+    except asyncio.TimeoutError:  # Use asyncio.TimeoutError instead
+        await client.send_message(callback_query.from_user.id, "❌ Timeout. No input received.")
+
+@app.on_callback_query(filters.regex("^add_request_channel$"))
+async def add_request_channel(client, callback_query: CallbackQuery):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Yᴏᴜ Aʀᴇ Nᴏᴛ Aᴅᴍɪɴ ✖", show_alert=True)
+    
+    await callback_query.message.edit_text("🔐 **Send the Request Join Channel ID (starts with -100):**")
+    await callback_query.answer()
+    
+    try:
+        response = await client.listen(callback_query.from_user.id, timeout=60)
+        channel = response.text.strip()
+        
+        if channel.replace("-", "").isdigit():
+            channel = int(channel)
+        
+        settings = await get_settings()
+        request_channels = settings.get("REQUEST_SUB_CHANNELS", [])
+        
+        if channel in request_channels:
+            return await client.send_message(callback_query.from_user.id, "⚠️ Already in the request list.")
+        
+        request_channels.append(channel)
+        await set_setting("REQUEST_SUB_CHANNELS", request_channels)
+        await client.send_message(callback_query.from_user.id, f"✅ **Added `{channel}` to request join channels.**")
+    except asyncio.TimeoutError:
+        await client.send_message(callback_query.from_user.id, "❌ Timeout. No input received.")
+
+
+# 🔧 Channel Remove Handler
+@app.on_callback_query(filters.regex("^(remove_normal_channel|remove_request_channel)$"))
+async def remove_channel_handler(client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+    if user_id not in ADMINS:
+        return await callback_query.answer("Nᴏᴛ Aᴅᴍɪɴ ✖", show_alert=True)
+    
+    setting_type = "FORCE_SUB_CHANNELS" if "normal" in callback_query.data else "REQUEST_SUB_CHANNELS"
+    label = "Normal" if "normal" in callback_query.data else "Request"
+    
+    settings = await get_settings()
+    channels = settings.get(setting_type, [])
+    
+    if not channels:
+        return await callback_query.message.edit_text(f"⚠️ No {label} channels to remove.")
+    
+    buttons = [
+        [InlineKeyboardButton(f"❌ {ch}", callback_data=f"confirm_remove_{setting_type}_{i}")]
+        for i, ch in enumerate(channels)
+    ]
+    buttons.append([InlineKeyboardButton("◀️ Back", callback_data="manage_forcesub")])
+    
+    await callback_query.message.edit_text(
+        f"➖ **Select a {label} channel to remove:**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@app.on_callback_query(filters.regex("^confirm_remove_(FORCE_SUB_CHANNELS|REQUEST_SUB_CHANNELS)_\\d+$"))
+async def confirm_remove_channel(client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+    if user_id not in ADMINS:
+        return await callback_query.answer("Nᴏᴛ Aᴅᴍɪɴ ✖", show_alert=True)
+    
+    parts = callback_query.data.split("_")
+    setting_type = "_".join(parts[2:-1])
+    index = int(parts[-1])
+    
+    settings = await get_settings()
+    channels = settings.get(setting_type, [])
+    
+    try:
+        removed = channels.pop(index)
+        await set_setting(setting_type, channels)
+        await callback_query.message.edit_text(f"✅ Removed `{removed}` from channel list.")
+    except IndexError:
+        await callback_query.message.edit_text("❌ Invalid index.")
+    # Show updated menu or confirmation (optional)
+
+# Add a back to main menu handler
+@app.on_callback_query(filters.regex("^back_to_main$"))
+async def back_to_main_menu(client, callback_query: CallbackQuery):
+    # Create your main admin menu here
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+    ])
+    
+    await callback_query.message.edit_text(
+        "⚙️ **Admin Control Panel**\n\nSelect an option from the menu below:",
+        reply_markup=keyboard
+    )
+
+async def store_join_request(user_id, channel_id):
+    """Store a join request in the database"""
+    collection.update_one(
+        {"user_id": user_id},
+        {"$addToSet": {"pending_requests": channel_id}},
+        upsert=True
+    )
+
+async def has_pending_request(user_id, channel_id):
+    """Check if user has a pending join request for a channel"""
+    user_data = collection.find_one(
+        {"user_id": user_id, "pending_requests": channel_id}
+    )
+    return user_data is not None
+
+@app.on_chat_join_request()
+async def join_reqs(client, message: ChatJoinRequest):
+    """Handle join requests for channels that require approval"""
+    settings = await get_settings()
+    REQUEST_SUB_CHANNELS = settings.get("REQUEST_SUB_CHANNELS", [])
+    
+    # Only process requests for our channels
+    if message.chat.id not in REQUEST_SUB_CHANNELS:
+        return
+    
+    user_id = message.from_user.id
+    channel_id = message.chat.id
+    
+    # Store the join request in the database
+    await store_join_request(user_id, channel_id)
+    logger.info(f"📝 Stored join request from user {user_id} for channel {channel_id}")
+
+
+@app.on_chat_join_request()
+async def join_reqs(client, message: ChatJoinRequest):
+    """Handle join requests for channels that require approval"""
+    settings = await get_settings()
+    REQUEST_SUB_CHANNELS = settings.get("REQUEST_SUB_CHANNELS", [])
+    
+    # Only process requests for our channels
+    if message.chat.id not in REQUEST_SUB_CHANNELS:
+        return
+    
+    user_id = message.from_user.id
+    channel_id = message.chat.id
+    
+    # Store the join request in the database
+    await store_join_request(user_id, channel_id)
+    logger.info(f"📝 Stored join request from user {user_id} for channel {channel_id}")
+
+@app.on_message(filters.command("admin") & filters.private)
+async def admin_panel(client, message: Message):
+    user_id = message.from_user.id
+    
+    if user_id not in ADMINS:
+        await message.reply_text("⚠️ You are not authorized to use admin commands.")
+        return
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+    ])
+    
+    await message.reply_text(
+        "⚙️ **Admin Control Panel**\n\nSelect an option from the menu below:",
+        reply_markup=keyboard
+    )
+
+
 @app.on_message(filters.command("stats"))
 async def stats_command(client: Client, message: Message):
     # Only allow the owner to access stats
@@ -304,7 +585,117 @@ async def start_command(client: Client, message: Message):
         "ᴊᴜsᴛ sᴇɴᴅ ᴍᴇ ᴀ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ, ᴀɴᴅ ɪ'ʟʟ ꜰᴇᴛᴄʜ ᴛʜᴇ ᴠɪᴅᴇᴏ ꜰᴏʀ ʏᴏᴜ 🎬🚀"
     )
     image_url = "https://i.ibb.co/dsXGtrGt/anime-girl-lollipop-2k-wallpaper-uhdpaper-com-375-5-d.jpg"
+    
+    user_id = message.from_user.id
+    
+    # Skip subscription checks for the owner
+    if user_id != OWNER_ID:
+        settings = await get_settings()
+        FORCE_SUB_CHANNELS = settings.get("FORCE_SUB_CHANNELS", [])
+        REQUEST_SUB_CHANNELS = settings.get("REQUEST_SUB_CHANNELS", [])
+        
+        # Initialize variables to track which channels the user needs to join
+        force_channels_to_join = []
+        request_channels_to_join = []
+        
+        # Check force sub channels
+        for channel in FORCE_SUB_CHANNELS:
+            try:
+                member = await client.get_chat_member(channel, user_id)
+                if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
+                    force_channels_to_join.append(channel)
+            except Exception as e:
+                logger.error(f"Error checking force sub: {e}")
+                force_channels_to_join.append(channel)
+        
+        # Check request channels
+        for channel in REQUEST_SUB_CHANNELS:
+            try:
+                # Skip if user already has a pending request
+                if await has_pending_request(user_id, channel):
+                    continue
+                
+                # Check if user is a member
+                member = await client.get_chat_member(channel, user_id)
+                if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
+                    request_channels_to_join.append(channel)
+            except Exception as e:
+                logger.error(f"Error checking request sub: {e}")
+                request_channels_to_join.append(channel)
+        
+        # If user needs to join channels, show them the subscription message
+        if force_channels_to_join or request_channels_to_join:
+            # User needs to join channels - prepare buttons
+            force_text = (
+                f"⚠️ Hᴇʏ, {message.from_user.mention} 🚀\n\n"
+                "Yᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴄʜᴀɴɴᴇʟs ʏᴇᴛ. Pʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ᴄʜᴀɴɴᴇʟs ʙᴇʟᴏᴡ, ᴛʜᴇɴ ᴛʀʏ ᴀɢᴀɪɴ.. !\n\n"
+                "❗️Fᴀᴄɪɴɢ ᴘʀᴏʙʟᴇᴍs, ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ."
+            )
+            buttons = []
+            temp_buttons = []
+            
+            # Add FORCE-JOIN CHANNELS buttons
+            for channel in force_channels_to_join:
+                try:
+                    chat = await client.get_chat(channel)
+                    invite_link = await client.export_chat_invite_link(channel)
+                    btn = InlineKeyboardButton(f"👾 {chat.title}", url=invite_link)
+                    temp_buttons.append(btn)
+                    if len(temp_buttons) == 2:
+                        buttons.append(temp_buttons)
+                        temp_buttons = []
+                except Exception as e:
+                    logger.error(f"Error creating force join button for {channel}: {e}")
+                    continue
+            
+            # Add REQUEST-JOIN CHANNELS buttons
+            for channel in request_channels_to_join:
+                try:
+                    chat = await client.get_chat(channel)
+                    invite_link = await client.create_chat_invite_link(channel, creates_join_request=True)
+                    btn = InlineKeyboardButton(f"⚡ {chat.title}", url=invite_link.invite_link)
+                    temp_buttons.append(btn)
+                    if len(temp_buttons) == 2:
+                        buttons.append(temp_buttons)
+                        temp_buttons = []
+                except Exception as e:
+                    logger.error(f"Error creating request join button for {channel}: {e}")
+                    continue
+            
+            # Add leftovers
+            if temp_buttons:
+                buttons.append(temp_buttons)
+            
+            # Add Try Again button
+            buttons.append([
+                InlineKeyboardButton("♻️ ᴛʀʏ ᴀɢᴀɪɴ ♻️", url=f"https://t.me/{app.me.username}?start=")
+            ])
+            
+            # Send the message with buttons
+            if buttons:
+                try:
+                    await message.reply_photo(
+                        photo=image_url,
+                        caption=force_text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        quote=True
+                    )
+                    logger.info(f"✅ Sent force subscription message to user {user_id}")
+                    return
+                except Exception as e:
+                    logger.error(f"❌ Error sending force subscription message: {e}")
+                    # Fallback to text message
+                    try:
+                        await message.reply(
+                            force_text,
+                            reply_markup=InlineKeyboardMarkup(buttons),
+                            quote=True
+                        )
+                        return
+                    except Exception as e:
+                        logger.error(f"❌ Error sending fallback message: {e}")
 
+    # Continue with the original start command logic if user has joined all channels or is the owner
     if len(message.command) > 1 and len(message.command[1]) == 36:
         token = message.command[1]
         user_id = message.from_user.id
@@ -344,6 +735,7 @@ async def start_command(client: Client, message: Message):
         else:
             await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=final_msg, reply_markup=reply_markup)
 
+
 async def update_status_message(status_message, text):
     try:
         await status_message.edit_text(text)
@@ -362,12 +754,111 @@ async def handle_message(client: Client, message: Message):
 
     # 👑 Bypass all checks for the OWNER
     if user_id != OWNER_ID:
-        # Check if user is a member
-        is_member = await is_user_member(client, user_id)
-        if not is_member:
-            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jffmain")
-            reply_markup = InlineKeyboardMarkup([[join_button]])
-            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        settings = await get_settings()
+        image_url = "https://i.ibb.co/dsXGtrGt/anime-girl-lollipop-2k-wallpaper-uhdpaper-com-375-5-d.jpg"
+        FORCE_SUB_CHANNELS = settings.get("FORCE_SUB_CHANNELS", [])
+        REQUEST_SUB_CHANNELS = settings.get("REQUEST_SUB_CHANNELS", [])
+        
+        # Initialize variables to track which channels the user needs to join
+        force_channels_to_join = []
+        request_channels_to_join = []
+        
+        # Check force sub channels
+        for channel in FORCE_SUB_CHANNELS:
+            try:
+                member = await client.get_chat_member(channel, user_id)
+                if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
+                    force_channels_to_join.append(channel)
+            except Exception as e:
+                logger.error(f"Error checking force sub: {e}")
+                force_channels_to_join.append(channel)
+        
+        # Check request channels
+        for channel in REQUEST_SUB_CHANNELS:
+            try:
+                # Skip if user already has a pending request
+                if await has_pending_request(user_id, channel):
+                    continue
+                
+                # Check if user is a member
+                member = await client.get_chat_member(channel, user_id)
+                if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
+                    request_channels_to_join.append(channel)
+            except Exception as e:
+                logger.error(f"Error checking request sub: {e}")
+                request_channels_to_join.append(channel)
+        
+        # If user needs to join channels, show them the subscription message
+        if force_channels_to_join or request_channels_to_join:
+            # User needs to join channels - prepare buttons
+            force_text = (
+                f"⚠️ Hᴇʏ, {message.from_user.mention} 🚀\n\n"
+                "Yᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴄʜᴀɴɴᴇʟs ʏᴇᴛ. Pʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ᴄʜᴀɴɴᴇʟs ʙᴇʟᴏᴡ, ᴛʜᴇɴ ᴛʀʏ ᴀɢᴀɪɴ.. !\n\n"
+                "❗️Fᴀᴄɪɴɢ ᴘʀᴏʙʟᴇᴍs, ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ."
+            )
+            buttons = []
+            temp_buttons = []
+            
+            # Add FORCE-JOIN CHANNELS buttons
+            for channel in force_channels_to_join:
+                try:
+                    chat = await client.get_chat(channel)
+                    invite_link = await client.export_chat_invite_link(channel)
+                    btn = InlineKeyboardButton(f"👾 {chat.title}", url=invite_link)
+                    temp_buttons.append(btn)
+                    if len(temp_buttons) == 2:
+                        buttons.append(temp_buttons)
+                        temp_buttons = []
+                except Exception as e:
+                    logger.error(f"Error creating force join button for {channel}: {e}")
+                    continue
+            
+            # Add REQUEST-JOIN CHANNELS buttons
+            for channel in request_channels_to_join:
+                try:
+                    chat = await client.get_chat(channel)
+                    invite_link = await client.create_chat_invite_link(channel, creates_join_request=True)
+                    btn = InlineKeyboardButton(f"⚡ {chat.title}", url=invite_link.invite_link)
+                    temp_buttons.append(btn)
+                    if len(temp_buttons) == 2:
+                        buttons.append(temp_buttons)
+                        temp_buttons = []
+                except Exception as e:
+                    logger.error(f"Error creating request join button for {channel}: {e}")
+                    continue
+            
+            # Add leftovers
+            if temp_buttons:
+                buttons.append(temp_buttons)
+            
+            # Add Try Again button
+            buttons.append([
+                InlineKeyboardButton("♻️ ᴛʀʏ ᴀɢᴀɪɴ ♻️", url=f"https://t.me/{app.me.username}?start=")
+            ])
+            
+            # Send the message with buttons
+            if buttons:
+                try:
+                    await message.reply_photo(
+                        photo=image_url,
+                        caption=force_text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        quote=True
+                    )
+                    logger.info(f"✅ Sent force subscription message to user {user_id}")
+                    return
+                except Exception as e:
+                    logger.error(f"❌ Error sending force subscription message: {e}")
+                    # Fallback to text message
+                    try:
+                        await message.reply(
+                            force_text,
+                            reply_markup=InlineKeyboardMarkup(buttons),
+                            quote=True
+                        )
+                        return
+                    except Exception as e:
+                        logger.error(f"❌ Error sending fallback message: {e}")
             return
 
         # Token validation
