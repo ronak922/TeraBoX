@@ -29,6 +29,8 @@ OWNER_ID = 7663297585
 ADMINS = [OWNER_ID]  # Add more admin IDs as needed
 
 
+
+
 load_dotenv('config.env', override=True)
 logging.basicConfig(
     level=logging.INFO,  
@@ -49,22 +51,23 @@ aria2 = Aria2API(
     )
 )
 options = {
-    "max-tries": "50",
-    "retry-wait": "3",
-    "continue": "true",
-    "allow-overwrite": "true",
-    "min-split-size": "1M",  # Decrease to 1M for more chunks
-    "split": "32",  # Increase from 16 to 32 for more parallel downloads
-    "max-connection-per-server": "16",  # Increase from 8 to 16
-    "max-concurrent-downloads": "10",  # Increase from 5 to 10
-    "dir": "/tmp/aria2_downloads",
-    "max-download-limit": "0",
-    "min-download-limit": "1M",
-    "bt-max-peers": "0",  # Unlimited peers
-    "bt-request-peer-speed-limit": "10M",  # Higher peer speed limit
-    "seed-ratio": "0.0",  # Don't seed
-    "file-allocation": "none",  # Faster file allocation
+    "max-tries": "50",                      # Generous retries
+    "retry-wait": "3",                      # Retry quickly
+    "continue": "true",                     # Resume support
+    "allow-overwrite": "true",              # Force overwrite
+    "min-split-size": "1M",                 # More chunking = more parallelism
+    "split": "32",                          # High parallel connections per file
+    "max-connection-per-server": "16",      # Max TCP connections to host
+    "max-concurrent-downloads": "10",       # Simultaneous file downloads
+    "dir": "/tmp/aria2_downloads",          # Save location
+    "max-download-limit": "0",              # No limit
+    "min-download-limit": "1M",             # Minimum speed to avoid stalling
+    "bt-max-peers": "0",                    # Unlimited peers (for torrents)
+    "bt-request-peer-speed-limit": "10M",   # Maximize peer data intake
+    "seed-ratio": "0.0",                    # No seeding (good)
+    "file-allocation": "none",              # Fastest allocation method
 }
+
 
 aria2.set_global_options(options)
 
@@ -253,29 +256,49 @@ start_time = datetime.now()
 download_count = 0
 total_download_size = 0
 
+TOKEN_SYSTEM_ENABLED = os.environ.get('TOKEN_SYSTEM_ENABLED', 'True').lower() == 'true'
+
 async def get_settings():
     """Get bot settings from database"""
-    settings_doc = db.get_collection("settings").find_one({"_id": "bot_settings"})
-    
+    settings_col = db.get_collection("settings")
+    settings_doc = settings_col.find_one({"_id": "bot_settings"})
+
     if not settings_doc:
         # Create default settings if none exist
         default_settings = {
             "_id": "bot_settings",
             "FORCE_SUB_CHANNELS": [FSUB_ID],  # Use your existing FSUB_ID
-            "REQUEST_SUB_CHANNELS": [-1002631104533]  # Default channel that requires approval
+            "REQUEST_SUB_CHANNELS": [-1002631104533],  # Default approval channel
+            "TOKEN_SYSTEM_ENABLED": True
         }
-        db.get_collection("settings").insert_one(default_settings)
+        settings_col.insert_one(default_settings)
+        global TOKEN_SYSTEM_ENABLED
+        TOKEN_SYSTEM_ENABLED = default_settings["TOKEN_SYSTEM_ENABLED"]
         return default_settings
-    
-    # If settings exist but REQUEST_SUB_CHANNELS is empty or doesn't exist, add the default channel
+
+    # Ensure REQUEST_SUB_CHANNELS exists
     if "REQUEST_SUB_CHANNELS" not in settings_doc or not settings_doc["REQUEST_SUB_CHANNELS"]:
-        db.get_collection("settings").update_one(
+        settings_col.update_one(
             {"_id": "bot_settings"},
             {"$set": {"REQUEST_SUB_CHANNELS": [-1002631104533]}}
         )
         settings_doc["REQUEST_SUB_CHANNELS"] = [-1002631104533]
+
+    # Ensure TOKEN_SYSTEM_ENABLED exists
+    if "TOKEN_SYSTEM_ENABLED" not in settings_doc:
+        settings_col.update_one(
+            {"_id": "bot_settings"},
+            {"$set": {"TOKEN_SYSTEM_ENABLED": True}}
+        )
+        settings_doc["TOKEN_SYSTEM_ENABLED"] = True
+
+    # Update global variable
     
+    # global TOKEN_SYSTEM_ENABLED
+    TOKEN_SYSTEM_ENABLED = settings_doc.get("TOKEN_SYSTEM_ENABLED", True)
+
     return settings_doc
+
 
 
 async def set_setting(key, value):
@@ -448,10 +471,14 @@ async def confirm_remove_channel(client, callback_query: CallbackQuery):
 # Add a back to main menu handler
 @app.on_callback_query(filters.regex("^back_to_main$"))
 async def back_to_main_menu(client, callback_query: CallbackQuery):
+    # Get current token system status
+    token_status = "🔴 Disable" if TOKEN_SYSTEM_ENABLED else "🟢 Enable"
+    
     # Create your main admin menu here
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton(f"{token_status} Tᴏᴋᴇɴ Sʏsᴛᴇᴍ", callback_data="toggle_token_system")],
         [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
     ])
     
@@ -518,13 +545,50 @@ async def admin_panel(client, message: Message):
         await message.reply_text("⚠️ You are not authorized to use admin commands.")
         return
     
+    # Get current token system status
+    token_status = "🔴 Disable" if TOKEN_SYSTEM_ENABLED else "🟢 Enable"
+    
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton(f"{token_status} Tᴏᴋᴇɴ Sʏsᴛᴇᴍ", callback_data="toggle_token_system")],
         [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
     ])
     
     await message.reply_text(
+        "⚙️ **Admin Control Panel**\n\nSelect an option from the menu below:",
+        reply_markup=keyboard
+    )
+
+@app.on_callback_query(filters.regex("^toggle_token_system$"))
+async def toggle_token_system(client, callback_query: CallbackQuery):
+    global TOKEN_SYSTEM_ENABLED
+    if callback_query.from_user.id not in ADMINS:
+        await callback_query.answer("You are not authorized to use this function.", show_alert=True)
+        return
+    
+    global TOKEN_SYSTEM_ENABLED
+    # Toggle the token system
+    TOKEN_SYSTEM_ENABLED = not TOKEN_SYSTEM_ENABLED
+    
+    # Update the setting in the database
+    await set_setting("TOKEN_SYSTEM_ENABLED", TOKEN_SYSTEM_ENABLED)
+    
+    status = "enabled" if TOKEN_SYSTEM_ENABLED else "disabled"
+    await callback_query.answer(f"Token system {status} successfully!", show_alert=True)
+    
+    # Update the button text
+    token_status = "🔴 Disable" if TOKEN_SYSTEM_ENABLED else "🟢 Enable"
+    
+    # Recreate the keyboard with updated button text
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton(f"{token_status} Token System", callback_data="toggle_token_system")],
+        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+    ])
+    
+    await callback_query.message.edit_text(
         "⚙️ **Admin Control Panel**\n\nSelect an option from the menu below:",
         reply_markup=keyboard
     )
@@ -707,7 +771,7 @@ async def start_command(client: Client, message: Message):
                         logger.error(f"❌ Error sending fallback message: {e}")
 
     # Continue with the original start command logic if user has joined all channels or is the owner
-    if len(message.command) > 1 and len(message.command[1]) == 36:
+    if len(message.command) > 1 and len(message.command[1]) == 36 and TOKEN_SYSTEM_ENABLED :
         token = message.command[1]
         user_id = message.from_user.id
 
@@ -723,6 +787,7 @@ async def start_command(client: Client, message: Message):
         if not has_valid_token(user_id):
             token = generate_uuid(user_id)
             long_url = f"https://t.me/{app.me.username}?start={token}"
+            final_msg = (f"<b>Sᴇɴᴅ Tᴇʀᴀʙᴏx Lɪɴᴋ Tᴏ Dᴏᴡɴʟᴏᴀᴅ Vɪᴅᴇᴏ</b>")
 
             # 👑 Bypass shortening for OWNER
             if user_id == OWNER_ID:
@@ -730,28 +795,51 @@ async def start_command(client: Client, message: Message):
             else:
                 short_url = shorten_url(long_url)
 
-            if short_url:
+            if short_url and TOKEN_SYSTEM_ENABLED :
                 reply_markup2 = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Generate Token Link", url=short_url)],
+                    [InlineKeyboardButton("Vᴇʀɪғʏ Tᴏᴋᴇɴ 🚀", url=short_url)],
                     [join_button, developer_button],
                 ])
                 caption = (
                     "🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ.\n\n"
-                    "Please generate your Token, which will be valid for 12Hrs."
+                    "Pʟᴇᴀsᴇ ɢᴇɴᴇʀᴀᴛᴇ ʏᴏᴜʀ Tᴏᴋᴇɴ, ᴡʜɪᴄʜ ᴡɪʟʟ ʙᴇ ᴠᴀʟɪᴅ ғᴏʀ 12Hʀs"
                 )
 
                 await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=caption, reply_markup=reply_markup2)
-            else:
-                await message.reply_text("Failed to generate the final link. Please try again.")
+            elif not TOKEN_SYSTEM_ENABLED:
+                await client.send_message(chat_id=message.chat.id, text=final_msg )
         else:
             await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=final_msg, reply_markup=reply_markup)
 
 
-async def update_status_message(status_message, text):
+async def update_status_message(status_message, text, reply_markup=None):
     try:
-        await status_message.edit_text(text)
+        await status_message.edit_text(text, reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
+
+
+
+# Add this callback handler to handle cancel button clicks
+@app.on_callback_query(filters.regex(r'^cancel_(.+)$'))
+async def cancel_download_callback(client, callback_query):
+    # Extract the download GID from the callback data
+    download_gid = callback_query.data.split('_')[1]
+    user_id = callback_query.from_user.id
+    
+    # Check if the download exists and belongs to the user who clicked cancel
+    if (download_gid in app.active_downloads and 
+            app.active_downloads[download_gid]['user_id'] == user_id):
+        
+        # Mark the download as cancelled
+        app.active_downloads[download_gid]['cancelled'] = True
+        
+        await callback_query.answer("Cancelling download... Please wait.")
+    else:
+        # Either download doesn't exist or user is not authorized
+        await callback_query.answer("Cannot cancel this download.", show_alert=True)
+
+
 
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
@@ -873,7 +961,7 @@ async def handle_message(client: Client, message: Message):
             return
 
         # Token validation
-        if not has_valid_token(user_id):
+        if TOKEN_SYSTEM_ENABLED and not has_valid_token(user_id):
             await message.reply_text(
                 "Your token has expired or you haven't generated one yet.\n"
                 "Please generate a new token using /start."
@@ -897,12 +985,38 @@ async def handle_message(client: Client, message: Message):
         'continue': 'true',
         'split': '16',  # More parallel download
     })
-    status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤")
+    status_message = await message.reply_text(
+        "sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cᴀɴᴄᴇʟ ", callback_data=f"cancel_{download.gid}")] 
+        ])
+    )
 
     start_time = datetime.now()
 
+    if not hasattr(app, 'active_downloads'):
+        app.active_downloads = {}
+
+    app.active_downloads[download.gid] = {
+        'download': download,
+        'status_message': status_message,
+        'user_id': user_id,
+        'cancelled': False
+    }
+
     while not download.is_complete:
-        await asyncio.sleep(5)
+        if app.active_downloads.get(download.gid, {}).get('cancelled', False):
+            try:
+                download.remove(force=True, files=True)
+                await status_message.edit_text("✅ Download cancelled by user.")
+            except Exception as e:
+                logger.error(f"Error cancelling download: {e}")
+                await status_message.edit_text("❌ Failed to cancel download.")
+
+            if download.gid in app.active_downloads:
+                del app.active_downloads[download.gid]
+            return
+        await asyncio.sleep(2)
         download.update()
         progress = download.progress
 
@@ -910,20 +1024,28 @@ async def handle_message(client: Client, message: Message):
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
 
         status_text = (
-            f"📥 <b>{download.name}</b>\n"
-            f"⏳ <b>Progress:</b> [{('★' * int(progress / 10))}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"⚡ <b>Speed:</b> {format_size(download.download_speed)}/s | <b>ETA:</b> {download.eta}\n"
-            f"🕒 <b>Elapsed:</b> {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"📝 <b>File Size:</b> {format_size(download.total_length)}\n"
-            f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ID: {user_id}\n"
+            f"📦 <b>{download.name}</b>\n"
+            f"⏳ <b>Pʀᴏɢʀᴇss:</b> [{('★' * int(progress / 10))}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
+            f"⚡ <b>Sᴘᴇᴇᴅ:</b> {format_size(download.download_speed)}/s | <b>ETA:</b> {download.eta}\n"
+            f"🕒 <b>Eʟᴀᴘsᴇᴅ:</b> {elapsed_minutes}m {elapsed_seconds}s\n"
+            f"📝 <b>Fɪʟᴇ Sɪᴢᴇ:</b> {format_size(download.total_length)}\n"
             )
         while True:
             try:
-                await update_status_message(status_message, status_text)
+                await update_status_message(
+                    status_message,
+                    status_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("Cᴀɴᴄᴇʟ ❌", callback_data=f"cancel_{download.gid}")]
+                    ])
+                )
                 break
             except FloodWait as e:
                 logger.error(f"Flood wait detected! Sleeping for {e.value} seconds")
                 await asyncio.sleep(e.value)
+
+    if download.gid in app.active_downloads:
+        del app.active_downloads[download.gid]
 
     file_path = download.files[0].path
     caption = (
