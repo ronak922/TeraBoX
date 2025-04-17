@@ -1156,21 +1156,21 @@ from pyrogram.errors import FloodWait, MessageDeleteForbidden
 
 
 # Add this function to create a simple web server
-async def web_server():
-    # Define a simple health check endpoint
-    async def health_check(request):
-        return web.Response(text="Bot is running!")
+# async def web_server():
+#     # Define a simple health check endpoint
+#     async def health_check(request):
+#         return web.Response(text="Bot is running!")
     
-    # Create the web app
-    app = web.Application()
-    app.router.add_get("/", health_check)
+#     # Create the web app
+#     app = web.Application()
+#     app.router.add_get("/", health_check)
     
-    # Start the web server
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)  # Use port 8080 or the PORT env var
-    await site.start()
-    logger.info("Web server started on port 8080")
+#     # Start the web server
+#     runner = web.AppRunner(app)
+#     await runner.setup()
+#     site = web.TCPSite(runner, "0.0.0.0", 8080)  # Use port 8080 or the PORT env var
+#     await site.start()
+#     logger.info("Web server started on port 8080")
 
 # Modify your main code to start the web server
 def run_user():
@@ -1178,11 +1178,21 @@ def run_user():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start_user_client())
 
-# First, define the functions
+import struct
+
 async def start_user_client():
     if user:
-        await user.start()
-        logger.info("User client started.")
+        try:
+            await user.start()
+            logger.info("User client started.")
+        except struct.error as e:
+            logger.error(f"Invalid session string: {e}")
+            logger.info("Bot will continue without user client and split files in 2GB chunks")
+            global USER_SESSION_STRING
+            USER_SESSION_STRING = None
+            global SPLIT_SIZE
+            SPLIT_SIZE = 2093796556
+
 
 def run_user():
     loop = asyncio.new_event_loop()
@@ -1200,15 +1210,31 @@ async def root_route_handler(request):
         "theme": "Luxury | Hacker | Telegram Album Bot"
     })
 
+async def web_server():
+    app = web.Application()
+    app.add_routes(routes)
 
-# Then use them in the main block
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+
+    print("Web server started on port 8080")
+
+
+async def main():
+    
+    # Start the web server
+    await web_server()
+    logger.info("Web server started")
+    
+    # Start the bot
+    await app.start()
+    logger.info("Bot client started")
+    
+    # Keep the program running
+    await idle()
+
 if __name__ == "__main__":
-    if user:
-        logger.info("Starting both bot and user clients...")
-        user_thread = threading.Thread(target=run_user)
-        user_thread.daemon = True  # Make thread exit when main thread exits
-        user_thread.start()
-
-    logger.info("Starting bot client...")
-    logger.info("Bot client Started...")
-    app.run()  # This will start the bot and keep it running
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
