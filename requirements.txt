@@ -8,3 +8,4 @@ tgcrypto
 pyrogram
 pymongo
 psutil
+aiohttp
