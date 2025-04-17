@@ -16,7 +16,7 @@ from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait, MessageDeleteForbidden
 from pyrogram import Client, filters, idle
-
+from helper import get_video_dimensions
 from pymongo import MongoClient
 import time
 import threading
@@ -1149,6 +1149,31 @@ async def handle_message(client: Client, message: Message):
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         part_caption = caption
+
+        # async def get_video_dimensions(video_path):
+        #     try:
+                
+        #         cmd = [
+        #             'ffprobe', '-v', 'error',
+        #             '-select_streams', 'v:0', 
+        #             '-show_entries', 'stream=width,height',
+        #             '-of', 'csv=p=0', 
+        #             video_path
+        #         ] 
+        #         process = await asyncio.create_subprocess_exec(
+        #             *cmd,
+        #             stdout=asyncio.subprocess.PIPE,
+        #             stderr=asyncio.subprocess.PIPE
+        #         )
+        #         stdout, stderr = await process.communicate()
+        #         if stdout:
+        #             dimensions = stdout.decode().strip().split(',')
+        #             if len(dimensions) == 2:
+        #                 return int(dimensions[0]), int(dimensions[1])
+        #         return None, None
+        #     except Exception as e:
+        #             logger.error(f"Error getting video dimensions: {e}")
+        #             return None, None
         
         if file_size > SPLIT_SIZE:
             await update_status(
@@ -1171,7 +1196,9 @@ async def handle_message(client: Client, message: Message):
                         f"📁 <b>Fɪʟᴇ:</b> <code>{os.path.basename(part)}</code>"
                         f"📦 <b>Sɪᴢᴇ:</b> {format_size(os.path.getsize(part))}"
                     )
-                    
+
+                    width, height = await get_video_dimensions(part)
+          
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
@@ -1179,6 +1206,8 @@ async def handle_message(client: Client, message: Message):
                             progress=upload_progress,
                             file_name=os.path.basename(part),
                             supports_streaming=True,
+                            width=width,
+                            height=height,
                             disable_notification=True,
                             request_timeout=3600
                         )
@@ -1189,11 +1218,15 @@ async def handle_message(client: Client, message: Message):
                         sent = await client.send_video(
                             DUMP_CHAT_ID, part,
                             caption=part_caption,
-                            progress=upload_progress
+                            progress=upload_progress,
+                            width=width,
+                            height=height,
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
-                            caption=part_caption
+                            caption=part_caption,
+                            width=width,
+                            height=height,
                         )
                     os.remove(part)
             finally:
@@ -1206,13 +1239,17 @@ async def handle_message(client: Client, message: Message):
                 f"📤 Uᴘʟᴏᴀᴅɪɴɢ  {download.name}\n"
                 f"Size: {format_size(file_size)}"
             )
+
+            width, height = await get_video_dimensions(file_path)           
             
             if USER_SESSION_STRING:
                 try:
                     sent = await user.send_video(
                         DUMP_CHAT_ID, file_path,
                         caption=part_caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        width=width,
+                        height=height,
                     )
                     try:
                         await app.copy_message(
@@ -1224,45 +1261,59 @@ async def handle_message(client: Client, message: Message):
                         try:
                             await app.send_video(
                                 message.chat.id, sent.video.file_id,
-                                caption=part_caption
+                                caption=part_caption,
+                                width=width,
+                                height=height,
                             )
                         except Exception as e2:
                             logger.error(f"Error sending video: {e2}")
                             await app.send_video(
                                 message.chat.id, file_path,
-                                caption=part_caption
+                                caption=part_caption,
+                                width=width,
+                                height=height,
                             )
                 except Exception as e:
                     logger.error(f"Error sending video: {e}")
                     await app.send_video(
                         message.chat.id, file_path,
                         caption=part_caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        width=width,
+                        height=height,
                     )
             else:
                 try:
                     sent = await client.send_video(
                         DUMP_CHAT_ID, file_path,
                         caption=part_caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        width=width,
+                        height=height,
                     )
                     try:
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
-                            caption=part_caption
+                            caption=part_caption,
+                            width=width,
+                            height=height,
                         )
                     except Exception as e:
                         logger.error(f"Failed to send video using file_id: {e}")
                         await client.send_video(
                             message.chat.id, part,
-                            caption=part_caption
+                            caption=part_caption,
+                            width=width,
+                            height=height,
                         )
                 except Exception as e:
                     logger.error(f"Failed to send video: {e}")
                     await client.send_video(
                         message.chat.id, file_path,
                         caption=part_caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        width=width,
+                        height=height,
                     )
 
         if os.path.exists(file_path):
