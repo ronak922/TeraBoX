@@ -11,6 +11,12 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait, MessageDeleteForbidden
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 import asyncio  # For asyncio.TimeoutError
+from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.enums import ChatMemberStatus
+from pyrogram.errors import FloodWait, MessageDeleteForbidden
+from pyrogram import Client, filters, idle
+
 from pymongo import MongoClient
 import time
 import threading
@@ -1101,8 +1107,39 @@ async def handle_message(client: Client, message: Message):
         logger.error(f"Cleanup error: {e}")
         
 
+# Add these imports
+from aiohttp import web
+# Add this to your imports at the top of the file
+from pyrogram import Client, filters, idle
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.enums import ChatMemberStatus
+from pyrogram.errors import FloodWait, MessageDeleteForbidden
 
 
+# Add this function to create a simple web server
+async def web_server():
+    # Define a simple health check endpoint
+    async def health_check(request):
+        return web.Response(text="Bot is running!")
+    
+    # Create the web app
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    
+    # Start the web server
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)  # Use port 8080 or the PORT env var
+    await site.start()
+    logger.info("Web server started on port 8080")
+
+# Modify your main code to start the web server
+def run_user():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_user_client())
+
+# First, define the functions
 async def start_user_client():
     if user:
         await user.start()
@@ -1113,13 +1150,14 @@ def run_user():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start_user_client())
 
+# Then use them in the main block
 if __name__ == "__main__":
     if user:
         logger.info("Starting both bot and user clients...")
         user_thread = threading.Thread(target=run_user)
+        user_thread.daemon = True  # Make thread exit when main thread exits
         user_thread.start()
 
     logger.info("Starting bot client...")
     logger.info("Bot client Started...")
-    # print(f"Your session string: {app.session_string}")
-    app.run()
+    app.run()  # This will start the bot and keep it running
