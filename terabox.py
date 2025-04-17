@@ -226,6 +226,73 @@ async def ping_command(client: Client, message: Message):
     except Exception as e:
         print(f"Error editing Pong message: {e}")
 
+import psutil
+import platform
+import time
+from datetime import datetime
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+# Global variables to track stats
+start_time = datetime.now()
+download_count = 0
+total_download_size = 0
+
+@app.on_message(filters.command("stats"))
+async def stats_command(client: Client, message: Message):
+    # Only allow the owner to access stats
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("⚠️ This command is only available to the bot owner.")
+        return
+    
+    # Get system stats
+    cpu_usage = psutil.cpu_percent()
+    ram_usage = psutil.virtual_memory().percent
+    disk_usage = psutil.disk_usage('/').percent
+    
+    # Get MongoDB stats
+    user_count = collection.count_documents({})
+    active_tokens = collection.count_documents({"token_status": "active"})
+    
+    # Calculate uptime
+    uptime = datetime.now() - start_time
+    days = uptime.days
+    hours, remainder = divmod(uptime.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    # Format the stats message
+    stats_text = (
+        f"📊 <b>BOT STATISTICS</b> 📊\n\n"
+        f"<b>System Information:</b>\n"
+        f"• OS: {platform.system()} {platform.release()}\n"
+        f"• CPU Usage: {cpu_usage}%\n"
+        f"• RAM Usage: {ram_usage}%\n"
+        f"• Disk Usage: {disk_usage}%\n\n"
+        
+        f"<b>Bot Information:</b>\n"
+        f"• Uptime: {days}d, {hours}h, {minutes}m, {seconds}s\n"
+        f"• Total Users: {user_count}\n"
+        f"• Active Tokens: {active_tokens}\n"
+        f"• Downloads: {download_count}\n"
+        f"• Total Downloaded: {format_size(total_download_size)}\n\n"
+        
+        f"<b>Database Information:</b>\n"
+        f"• Connection: {'✅ Connected' if client else '❌ Disconnected'}\n"
+        f"• Database: {DATABASE_NAME}\n"
+        f"• Collection: {COLLECTION_NAME}\n\n"
+        
+        f"<b>Bot Version:</b> 1.0.0\n"
+
+        
+        f"🚀 <b>Powered by:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
+    )
+    
+    try:
+        await message.reply_text(stats_text, disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"Error sending stats: {e}")
+        await message.reply_text("Error generating stats. Check logs for details.")
+
 
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
