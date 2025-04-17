@@ -53,14 +53,19 @@ options = {
     "retry-wait": "3",
     "continue": "true",
     "allow-overwrite": "true",
-    "min-split-size": "4M",  # File chunks
-    "split": "16",  # Increase the number of parts for faster download
-    "max-connection-per-server": "8",  # More connections per server
-    "max-concurrent-downloads": "5",  # Multiple downloads in parallel
-    "dir": "/tmp/aria2_downloads",  # Temporary directory
-    "max-download-limit": "0",  # Unlimited download speed
-    "min-download-limit": "1M",  # Minimum download speed to keep the connection alive
+    "min-split-size": "1M",  # Decrease to 1M for more chunks
+    "split": "32",  # Increase from 16 to 32 for more parallel downloads
+    "max-connection-per-server": "16",  # Increase from 8 to 16
+    "max-concurrent-downloads": "10",  # Increase from 5 to 10
+    "dir": "/tmp/aria2_downloads",
+    "max-download-limit": "0",
+    "min-download-limit": "1M",
+    "bt-max-peers": "0",  # Unlimited peers
+    "bt-request-peer-speed-limit": "10M",  # Higher peer speed limit
+    "seed-ratio": "0.0",  # Don't seed
+    "file-allocation": "none",  # Faster file allocation
 }
+
 aria2.set_global_options(options)
 
 
@@ -1001,11 +1006,12 @@ async def handle_message(client: Client, message: Message):
                 
                 output_path = f"{output_prefix}.{i+1:03d}{original_ext}"
                 cmd = [
-                    'xtra', '-y', '-ss', str(i * duration_per_part),
+                    'ffmpeg', '-y', '-ss', str(i * duration_per_part),
                     '-i', input_path, '-t', str(duration_per_part),
                     '-c', 'copy', '-map', '0',
                     '-metadata:s:v', 'rotate=0',  # Preserve original rotation
                     '-avoid_negative_ts', 'make_zero',
+                    '-threads', '8',  # Use more CPU threads
                     output_path
                 ]
                 
@@ -1048,7 +1054,11 @@ async def handle_message(client: Client, message: Message):
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
                             caption=part_caption,
-                            progress=upload_progress
+                            progress=upload_progress,
+                            file_name=os.path.basename(part),
+                            supports_streaming=True,
+                            disable_notification=True,
+                            request_timeout=3600
                         )
                         await app.copy_message(
                             message.chat.id, DUMP_CHAT_ID, sent.id
