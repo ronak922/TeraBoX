@@ -51,22 +51,44 @@ aria2 = Aria2API(
     )
 )
 options = {
-    "max-tries": "50",                      # Generous retries
-    "retry-wait": "3",                      # Retry quickly
-    "continue": "true",                     # Resume support
-    "allow-overwrite": "true",              # Force overwrite
-    "min-split-size": "1M",                 # More chunking = more parallelism
-    "split": "32",                          # High parallel connections per file
-    "max-connection-per-server": "16",      # Max TCP connections to host
-    "max-concurrent-downloads": "10",       # Simultaneous file downloads
-    "dir": "/tmp/aria2_downloads",          # Save location
+    # Connection settings
+    "max-connection-per-server": "16",      # Increase from 8 to 16 for more parallel connections
+    "split": "32",                          # Increase from 16 to 32 for more segments
+    "min-split-size": "1M",                 # Keep small split size for better parallelism
+    "piece-length": "1M",                   # Smaller pieces for better resumability
+    "max-concurrent-downloads": "3",        # Reduce to 3 to avoid overwhelming the network
+    
+    # Retry settings
+    "max-tries": "10",                      # Reduce from 50 to 10 (still plenty)
+    "retry-wait": "2",                      # Slightly faster retry
+    "connect-timeout": "10",                # Faster timeout for connection attempts
+    "timeout": "10",                        # Faster timeout for slow responses
+    
+    # Performance settings
+    "disk-cache": "64M",                    # Add disk cache to reduce disk I/O
+    "file-allocation": "falloc",            # Use 'falloc' if your filesystem supports it (faster than 'none')
+    "async-dns": "true",                    # Enable async DNS for faster lookups
+    "enable-http-keep-alive": "true",       # Keep connections alive
+    "enable-http-pipelining": "true",       # Enable HTTP pipelining
+    
+    # Continue and overwrite settings
+    "continue": "true",                     # Keep resume support
+    "allow-overwrite": "true",              # Keep force overwrite
+    
+    # Download limits
     "max-download-limit": "0",              # No limit
-    "min-download-limit": "1M",             # Minimum speed to avoid stalling
-    "bt-max-peers": "0",                    # Unlimited peers (for torrents)
-    "bt-request-peer-speed-limit": "10M",   # Maximize peer data intake
-    "seed-ratio": "0.0",                    # No seeding (good)
-    "file-allocation": "none",              # Fastest allocation method
+    "min-download-limit": "1M",             # Keep minimum speed
+    
+    # Storage location
+    "dir": "/tmp/aria2_downloads",          # Keep same location
+    
+    # BitTorrent settings (not used for Terabox but kept for completeness)
+    "bt-max-peers": "0",                    # Keep unlimited peers
+    "bt-request-peer-speed-limit": "10M",   # Keep same limit
+    "seed-ratio": "0.0",                    # Keep no seeding
 }
+
+
 
 
 aria2.set_global_options(options)
@@ -88,7 +110,7 @@ if len(BOT_TOKEN) == 0:
     logging.error("BOT_TOKEN variable is missing! Exiting now")
     exit(1)
 
-DUMP_CHAT_ID = os.environ.get('DUMP_CHAT_ID', '')
+DUMP_CHAT_ID = os.environ.get('DUMP_CHAT_ID', '-1002586886642')
 if len(DUMP_CHAT_ID) == 0:
     logging.error("DUMP_CHAT_ID variable is missing! Exiting now")
     exit(1)
@@ -126,15 +148,31 @@ collection = db[COLLECTION_NAME]
 
 app = Client("user_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# with Client("user_session", api_id=API_ID, api_hash=API_HASH) as app:
-#     print("Session string generated successfully!")
-#     print(f"Session String: {app.export_session_string()}")
+with Client("user_session", api_id=API_ID, api_hash=API_HASH) as app:
+    print("Session string generated successfully!")
+    print(f"Session String: {app.export_session_string()}")
 
 user = None
 SPLIT_SIZE = 2093796556
 if USER_SESSION_STRING:
-    user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
-    SPLIT_SIZE = 4241280205
+    try:
+        user = Client(
+            "user_session", 
+            api_id=API_ID, 
+            api_hash=API_HASH, 
+            session_string=USER_SESSION_STRING,
+            no_updates=True  # Add this to avoid update handling
+        )
+        SPLIT_SIZE = 4241280205
+    except Exception as e:
+        logger.error(f"Error initializing user client: {e}")
+        user = None
+        USER_SESSION_STRING = None
+        SPLIT_SIZE = 2093796556
+else:
+    user = None
+    SPLIT_SIZE = 2093796556
+
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
@@ -789,6 +827,10 @@ async def start_command(client: Client, message: Message):
             long_url = f"https://t.me/{app.me.username}?start={token}"
             final_msg = (f"<b>Sᴇɴᴅ Tᴇʀᴀʙᴏx Lɪɴᴋ Tᴏ Dᴏᴡɴʟᴏᴀᴅ Vɪᴅᴇᴏ</b>")
 
+            new_btn = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")]
+                ])
+
             # 👑 Bypass shortening for OWNER
             if user_id == OWNER_ID:
                 short_url = long_url
@@ -799,7 +841,10 @@ async def start_command(client: Client, message: Message):
                 reply_markup2 = InlineKeyboardMarkup([
                     [InlineKeyboardButton("Vᴇʀɪғʏ Tᴏᴋᴇɴ 🚀", url=short_url)],
                     [join_button, developer_button],
+                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")],
                 ])
+
+                
                 caption = (
                     "🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ.\n\n"
                     "Pʟᴇᴀsᴇ ɢᴇɴᴇʀᴀᴛᴇ ʏᴏᴜʀ Tᴏᴋᴇɴ, ᴡʜɪᴄʜ ᴡɪʟʟ ʙᴇ ᴠᴀʟɪᴅ ғᴏʀ 12Hʀs"
@@ -807,7 +852,7 @@ async def start_command(client: Client, message: Message):
 
                 await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=caption, reply_markup=reply_markup2)
             elif not TOKEN_SYSTEM_ENABLED:
-                await client.send_message(chat_id=message.chat.id, text=final_msg )
+                await client.send_message(chat_id=message.chat.id, text=final_msg,reply_markup=new_btn )
         else:
             await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=final_msg, reply_markup=reply_markup)
 
@@ -1008,7 +1053,7 @@ async def handle_message(client: Client, message: Message):
         if app.active_downloads.get(download.gid, {}).get('cancelled', False):
             try:
                 download.remove(force=True, files=True)
-                await status_message.edit_text("✅ Download cancelled by user.")
+                await status_message.edit_text("✅ Download cancelled..")
             except Exception as e:
                 logger.error(f"Error cancelling download: {e}")
                 await status_message.edit_text("❌ Failed to cancel download.")
@@ -1036,7 +1081,8 @@ async def handle_message(client: Client, message: Message):
                     status_message,
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Cᴀɴᴄᴇʟ ❌", callback_data=f"cancel_{download.gid}")]
+                        [InlineKeyboardButton("Cᴀɴᴄᴇʟ ❌", callback_data=f"cancel_{download.gid}"),
+                         InlineKeyboardButton("🔥 Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟ", url="https://t.me/+jaaC9FCv3OgzNGZl")],
                     ])
                 )
                 break
@@ -1050,8 +1096,7 @@ async def handle_message(client: Client, message: Message):
     file_path = download.files[0].path
     caption = (
         f"✨ {download.name}\n"
-        f"👤 <b>Lᴇᴀᴄʜᴇᴅ ʙʏ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
-        f"📥 <b>ᴜsᴇʀ ʟɪɴᴋ:</b> <a href='tg://user?id={user_id}'>tg://user?id={user_id}</a>\n\n"
+        f"⚡ <b>Vɪᴅᴇᴏ Bʏ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
         f"🚀 <b>ᴘᴏᴡᴇʀᴇᴅ ʙʏ:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
     )
 
@@ -1133,7 +1178,7 @@ async def handle_message(client: Client, message: Message):
                     '-c', 'copy', '-map', '0',
                     '-metadata:s:v', 'rotate=0',  # Preserve original rotation
                     '-avoid_negative_ts', 'make_zero',
-                    '-threads', '8',  # Use more CPU threads
+                    '-threads', '10',  # Use more CPU threads
                     output_path
                 ]
                 
@@ -1405,8 +1450,28 @@ async def web_server():
     print("Web server started on port 8080")
 
 
-async def main():
+async def check_dump_channel_access():
+    try:
+        # Try with bot client first
+        chat = await app.get_chat(DUMP_CHAT_ID)
+        bot_member = await app.get_chat_member(DUMP_CHAT_ID, app.me.id)
+        logger.info(f"Bot access to dump channel: {chat.title}, permissions: {bot_member.privileges}")
+        
+        # Try with user client if available
+        if user and USER_SESSION_STRING:
+            try:
+                user_chat = await user.get_chat(DUMP_CHAT_ID)
+                user_member = await user.get_chat_member(DUMP_CHAT_ID, user.me.id)
+                logger.info(f"User client access to dump channel: {user_chat.title}, status: {user_member.status}")
+            except Exception as e:
+                logger.error(f"User client cannot access dump channel: {e}")
+                
+        return True
+    except Exception as e:
+        logger.error(f"Error checking dump channel access: {e}")
+        return False
     
+async def main():
     # Start the web server
     await web_server()
     logger.info("Web server started")
@@ -1414,6 +1479,36 @@ async def main():
     # Start the bot
     await app.start()
     logger.info("Bot client started")
+    
+    # Start user client if available
+    if user:
+        try:
+            await user.start()
+            logger.info("User client started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start user client: {e}")
+            global USER_SESSION_STRING
+            USER_SESSION_STRING = None
+            global SPLIT_SIZE
+            SPLIT_SIZE = 2093796556
+    
+    # Now check dump channel access AFTER clients are started
+    await check_dump_channel_access()
+    
+    # Send startup notification to bot owner
+    try:
+        await app.send_message(
+            OWNER_ID,
+            f"✅ **Bot Started Successfully!**\n\n"
+            f"🕒 **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🖥️ **Server:** {platform.node()}\n"
+            f"💾 **User Session:** {'✅ Active' if USER_SESSION_STRING else '❌ Not configured'}\n"
+            f"🔄 **Max Upload Size:** {format_size(SPLIT_SIZE)}\n\n"
+            f"Bot is now ready to process Terabox links!"
+        )
+        logger.info(f"Startup notification sent to owner: {OWNER_ID}")
+    except Exception as e:
+        logger.error(f"Failed to send startup notification to owner: {e}")
     
     # Keep the program running
     await idle()
