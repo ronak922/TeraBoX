@@ -999,6 +999,7 @@ async def handle_message(client: Client, message: Message):
                     'xtra', '-y', '-ss', str(i * duration_per_part),
                     '-i', input_path, '-t', str(duration_per_part),
                     '-c', 'copy', '-map', '0',
+                    '-metadata:s:v', 'rotate=0',  # Preserve original rotation
                     '-avoid_negative_ts', 'make_zero',
                     output_path
                 ]
