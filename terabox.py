@@ -956,7 +956,6 @@ async def handle_message(client: Client, message: Message):
             f"📊 <b>Pʀᴏɢʀᴇss:</b> [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
             f"📦 <b>Sɪᴢᴇ:</b> {format_size(current)} / {format_size(total)}\n"
             f"🚀 <b>Sᴛᴀᴛᴜs:</b> Uᴘʟᴏᴀᴅɪɴɢ ᴛᴏ Tᴇʟᴇɢʀᴀᴍ...\n"
-            f"🧠 <b>Eɴɢɪɴᴇ:</b> <u>PyroFork v2.2.11</u>\n"
             f"⚙️ <b>Sᴘᴇᴇᴅ:</b> {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
             f"⏳ <b>ᴛɪᴍᴇ:</b> {elapsed_minutes}m {elapsed_seconds}s ᴇʟᴀᴘsᴇᴅ\n"
             f"🙋 <b>Uꜱᴇʀ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
@@ -1021,6 +1020,7 @@ async def handle_message(client: Client, message: Message):
 
     async def handle_upload():
         file_size = os.path.getsize(file_path)
+        part_caption = caption
         
         if file_size > SPLIT_SIZE:
             await update_status(
@@ -1076,24 +1076,63 @@ async def handle_message(client: Client, message: Message):
             )
             
             if USER_SESSION_STRING:
-                sent = await user.send_video(
-                    DUMP_CHAT_ID, file_path,
-                    caption=caption,
-                    progress=upload_progress
-                )
-                await app.copy_message(
-                    message.chat.id, DUMP_CHAT_ID, sent.id
-                )
+                try:
+                    sent = await user.send_video(
+                        DUMP_CHAT_ID, file_path,
+                        caption=part_caption,
+                        progress=upload_progress
+                    )
+                    try:
+                        await app.copy_message(
+                            message.chat.id, DUMP_CHAT_ID, sent.id
+                        )
+                    except Exception as e:
+                        logger.error(f"Error copying message: {e}")
+
+                        try:
+                            await app.send_video(
+                                message.chat.id, sent.video.file_id,
+                                caption=part_caption
+                            )
+                        except Exception as e2:
+                            logger.error(f"Error sending video: {e2}")
+                            await app.send_video(
+                                message.chat.id, file_path,
+                                caption=part_caption
+                            )
+                except Exception as e:
+                    logger.error(f"Error sending video: {e}")
+                    await app.send_video(
+                        message.chat.id, file_path,
+                        caption=part_caption,
+                        progress=upload_progress
+                    )
             else:
-                sent = await client.send_video(
-                    DUMP_CHAT_ID, file_path,
-                    caption=caption,
-                    progress=upload_progress
-                )
-                await client.send_video(
-                    message.chat.id, sent.video.file_id,
-                    caption=caption
-                )
+                try:
+                    sent = await client.send_video(
+                        DUMP_CHAT_ID, file_path,
+                        caption=part_caption,
+                        progress=upload_progress
+                    )
+                    try:
+                        await client.send_video(
+                            message.chat.id, sent.video.file_id,
+                            caption=part_caption
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send video using file_id: {e}")
+                        await client.send_video(
+                            message.chat.id, part,
+                            caption=part_caption
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to send video: {e}")
+                    await client.send_video(
+                        message.chat.id, file_path,
+                        caption=part_caption,
+                        progress=upload_progress
+                    )
+
         if os.path.exists(file_path):
             os.remove(file_path)
 
@@ -1149,6 +1188,18 @@ def run_user():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start_user_client())
+
+routes = web.RouteTableDef()
+
+@routes.get("/", allow_head=True)
+async def root_route_handler(request):
+    return web.json_response({
+        "status": "success",
+        "message": "NyxDesire By NʏxKɪɴɢX",
+        "bot": "NyxDesireX",
+        "theme": "Luxury | Hacker | Telegram Album Bot"
+    })
+
 
 # Then use them in the main block
 if __name__ == "__main__":
