@@ -917,10 +917,11 @@ async def find_between(string, start, end):
     return string[start_index:end_index]
 
 
-my_session = aiohttp.ClientSession(cookies=my_cookie)
-my_session.headers.update(my_headers)
+
 
 async def fetch_download_link_async(url):
+    my_session = aiohttp.ClientSession(cookies=my_cookie)
+    my_session.headers.update(my_headers)
     try:
         async with my_session.get(url) as response:
             response.raise_for_status()
