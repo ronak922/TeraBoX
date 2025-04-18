@@ -658,7 +658,6 @@ async def toggle_token_system(client, callback_query: CallbackQuery):
         reply_markup=keyboard
     )
 
-
 @app.on_message(filters.command("stats"))
 async def stats_command(client: Client, message: Message):
     # Only allow the owner to access stats
@@ -683,31 +682,16 @@ async def stats_command(client: Client, message: Message):
     
     # Format the stats message
     stats_text = (
-        f"📊 <b>BOT STATISTICS</b> 📊\n\n"
-        f"<b>System Information:</b>\n"
-        f"• OS: {platform.system()} {platform.release()}\n"
-        f"• CPU Usage: {cpu_usage}%\n"
-        f"• RAM Usage: {ram_usage}%\n"
-        f"• Disk Usage: {disk_usage}%\n\n"
-        
-        f"<b>Bot Information:</b>\n"
-        f"• Uptime: {days}d, {hours}h, {minutes}m, {seconds}s\n"
-        f"• Total Users: {user_count}\n"
-        f"• Active Tokens: {active_tokens}\n"
-        f"• Downloads: {download_count}\n"
-        f"• Total Downloaded: {format_size(total_download_size)}\n\n"
-        
-        f"<b>Database Information:</b>\n"
-        f"• Connection: {'✅ Connected' if client else '❌ Disconnected'}\n"
-        f"• Database: {DATABASE_NAME}\n"
-        f"• Collection: {COLLECTION_NAME}\n\n"
-        
-        f"<b>Bot Version:</b> 1.0.0\n"
-
-        
+        f"📊 <b>BOT STATS</b> 📊\n"
+        f"💻 <b>System:</b> CPU: {cpu_usage}% | RAM: {ram_usage}% | Disk: {disk_usage}%\n"
+        f"⏳ <b>Uptime:</b> {days}d {hours}h {minutes}m {seconds}s\n"
+        f"👤 <b>Users:</b> {user_count} | 🔑 Active Tokens: {active_tokens}\n"
+        f"📈 <b>Downloads:</b> {download_count} | Total Downloaded: {format_size(total_download_size)}\n"
+        f"🔌 <b>DB Connection:</b> {'✅ Connected' if client else '❌ Disconnected'}\n"
+        f"📦 <b>DB:</b> {DATABASE_NAME} - {COLLECTION_NAME}\n"
         f"🚀 <b>Powered by:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
     )
-    
+
     try:
         await message.reply_text(stats_text, disable_web_page_preview=True)
     except Exception as e:
@@ -879,7 +863,15 @@ async def start_command(client: Client, message: Message):
 
                 await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=caption, reply_markup=reply_markup2)
             elif not TOKEN_SYSTEM_ENABLED:
-                await client.send_message(chat_id=message.chat.id, text=final_msg,reply_markup=new_btn )
+                await client.send_sticker(
+                    chat_id=message.chat.id,
+                    sticker="CAACAgIAAxkBAAEBN-1oAl31NneuKt91GqgBGm37_YIO5AACZQ0AAulzQEj7mSnMOJpDMTYE"
+                )
+                await client.send_message(
+                    chat_id=message.chat.id,
+                    text=final_msg,
+                    reply_markup=new_btn,
+                )
         else:
             await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=final_msg, reply_markup=reply_markup)
 
@@ -1156,10 +1148,14 @@ async def handle_message(client: Client, message: Message):
         'continue': 'true',
         'split': '16',  # More parallel download
     })
+
+    sticker_msg = await message.reply_sticker("CAACAgUAAxkBAAEBN_VoAmHm1e-bdTtSNzujzGmTS9RoSgACFQ0AAnwFIFf-c66A7qeNLDYE")
+    await asyncio.sleep(1)
+    await sticker_msg.delete()
     status_message = await message.reply_text(
-        "sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤",
+        "🚀 Hᴀɴɢ ᴛɪɢʜᴛ! Yᴏᴜʀ ᴍᴇᴅɪᴀ ɪs ᴏɴ ɪᴛs ᴡᴀʏ... 😈",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cᴀɴᴄᴇʟ ", callback_data=f"cancel_{download.gid}")] 
+            [InlineKeyboardButton("Sᴛᴏᴘ ⏹️", callback_data=f"cancel_{download.gid}")] 
         ])
     )
 
@@ -1179,7 +1175,7 @@ async def handle_message(client: Client, message: Message):
         if app.active_downloads.get(download.gid, {}).get('cancelled', False):
             try:
                 download.remove(force=True, files=True)
-                await status_message.edit_text("✅ Download cancelled..")
+                await status_message.edit_text("✅ Dᴏᴡɴʟᴏᴀᴅ ᴄᴀɴᴄᴇʟʟᴇᴅ. Sᴇᴇ ʏᴀ ɴᴇxᴛ ᴛɪᴍᴇ! 🚫")
             except Exception as e:
                 logger.error(f"Error cancelling download: {e}")
                 await status_message.edit_text("❌ Failed to cancel download.")
@@ -1196,10 +1192,11 @@ async def handle_message(client: Client, message: Message):
 
         status_text = (
             f"📦 <b>{download.name}</b>\n"
-            f"⏳ <b>Pʀᴏɢʀᴇss:</b> [{('★' * int(progress / 10))}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
+            f"⏳ Progress: {progress:.2f}%\n"
             f"⚡ <b>Sᴘᴇᴇᴅ:</b> {format_size(download.download_speed)}/s | <b>ETA:</b> {download.eta}\n"
             f"🕒 <b>Eʟᴀᴘsᴇᴅ:</b> {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"📝 <b>Fɪʟᴇ Sɪᴢᴇ:</b> {format_size(download.total_length)}\n"
+            f"📝 <b>Fɪʟᴇ Sɪᴢᴇ:</b> {format_size(download.total_length)} | "
+            f"📈 <b>Rᴇᴍᴀɪɴɪɴɢ:</b> {format_size(download.total_length - download.downloaded_length)}"
             )
         while True:
             try:
@@ -1491,6 +1488,9 @@ async def handle_message(client: Client, message: Message):
 
         if os.path.exists(file_path):
             os.remove(file_path)
+
+        await message.reply_sticker("CAACAgIAAxkBAAEBN-9oAl4Ff6pcXynylSzeAAFBMzbPQJQAAsYOAAKVy0BKjW_8api2owQ2BA")
+        # await message.reply_text("✅ Uᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ! Eɴᴊᴏʏ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ. 😎")
 
     start_time = datetime.now()
     await handle_upload()
