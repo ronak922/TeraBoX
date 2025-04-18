@@ -18,6 +18,9 @@ from pyrogram.errors import FloodWait, MessageDeleteForbidden
 from pyrogram import Client, filters, idle
 from helper import get_video_dimensions
 from pymongo import MongoClient
+from pyrogram import enums
+import json
+import aiohttp
 import time
 import threading
 import uuid
@@ -28,6 +31,30 @@ import requests
 OWNER_ID = 7663297585
 ADMINS = [OWNER_ID]  # Add more admin IDs as needed
 
+logger = logging.getLogger(__name__)
+
+
+# Headers setup
+my_headers_raw = os.getenv("MY_HEADERS", "{}")
+try:
+    my_headers = json.loads(my_headers_raw)
+except json.JSONDecodeError as e:
+    logger.error(f"Invalid JSON for MY_HEADERS: {e}")
+    my_headers = {}
+
+# Cookie and Headers (MY_COOKIE and MY_HEADERS must be in JSON string format)
+cookie_string = os.getenv("MY_COOKIE", "browserid=avLKUlrztrL0C84414VnnfWxLrQ1vJblh4m8WCMxL7TZWIMpPdno52qQb27fk957PE6sUd5VZJ1ATlUe; lang=en; TSID=DLpCxYPseu0EL2J5S2Hf36yFszAufv2G; __bid_n=1964760716d8bd55e14207; g_state={\"i_l\":0}; ndus=Yd6IpupteHuieos8muZScO1E7xfuRT_csD6LBOF3; ndut_fmt=06E6B9E2AC0209A19E5F21774DDD4A03B26FC67DA9EB68D3E790C416E35F3957; csrfToken=XMXR2_q-9p3ckuuFAqeZId9d")
+
+# Safe cookie parsing with additional logging for invalid cookies
+if cookie_string:
+    try:
+        my_cookie = dict(item.split("=", 1) for item in cookie_string.split("; ") if "=" in item)
+    except Exception as e:
+        logger.error(f"Error parsing cookie string: {e}")
+        my_cookie = {}
+else:
+    logger.warning("MY_COOKIE not set!")
+    my_cookie = {}
 
 
 
@@ -884,6 +911,84 @@ async def cancel_download_callback(client, callback_query):
         # Either download doesn't exist or user is not authorized
         await callback_query.answer("Cannot cancel this download.", show_alert=True)
 
+async def find_between(string, start, end):
+    start_index = string.find(start) + len(start)
+    end_index = string.find(end, start_index)
+    return string[start_index:end_index]
+
+
+my_session = aiohttp.ClientSession(cookies=my_cookie)
+my_session.headers.update(my_headers)
+
+async def fetch_download_link_async(url):
+    try:
+        async with my_session.get(url) as response:
+            response.raise_for_status()
+            response_data = await response.text()
+
+            js_token = await find_between(response_data, 'fn%28%22', '%22%29')
+            log_id = await find_between(response_data, 'dp-logid=', '&')
+
+            if not js_token or not log_id:
+                return None
+
+            request_url = str(response.url)
+            surl = request_url.split('surl=')[1]
+            params = {
+                'app_id': '250528',
+                'web': '1',
+                'channel': 'dubox',
+                'clienttype': '0',
+                'jsToken': js_token,
+                'dplogid': log_id,
+                'page': '1',
+                'num': '20',
+                'order': 'time',
+                'desc': '1',
+                'site_referer': request_url,
+                'shorturl': surl,
+                'root': '1'
+            }
+
+            async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
+                response_data2 = await response2.json()
+                if 'list' not in response_data2:
+                    return None
+
+                # Process directory if needed
+                if response_data2['list'][0]['isdir'] == "1":
+                    params.update({
+                        'dir': response_data2['list'][0]['path'],
+                        'order': 'asc',
+                        'by': 'name',
+                        'dplogid': log_id
+                    })
+                    params.pop('desc')
+                    params.pop('root')
+                    async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
+                        response_data3 = await response3.json()
+                        if 'list' not in response_data3:
+                            return None
+                        return response_data3['list']
+                return response_data2['list']
+
+    except aiohttp.ClientResponseError as e:
+        print(f"Error fetching download link: {e}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return None
+
+async def format_message(link):
+    """
+    Format the link data into a readable message.
+    """
+    # Example format, adjust based on the structure of `link`
+    title = link.get('title', 'No Title')  # Assuming each link has a 'title'
+    dlink = link.get('dlink', '')  # The actual download link
+    size = link.get('size', 'Unknown size')  # Assuming the size is available
+
+    return f"🔗 <b>{title}</b>\n📝 Size: {size}\n[Download Here]({dlink})"
 
 
 @app.on_message(filters.text)
@@ -1022,9 +1127,29 @@ async def handle_message(client: Client, message: Message):
     if not url:
         await message.reply_text("Please provide a valid Terabox link.")
         return
+    
+    start_time = time.time()  # Start time to measure how long the process takes
+    link_data = await fetch_download_link_async(url)
 
-    encoded_url = urllib.parse.quote(url)
-    final_url = f"https://teradlrobot.cheemsbackup.workers.dev/?url={encoded_url}"
+    if not link_data or not link_data[0].get("dlink"):
+        await message.reply_text("⚠️ Failed to fetch the download link.")
+        return
+    
+    end_time = time.time()
+    time_taken = end_time - start_time
+
+    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+
+    # link_message = "\n\n".join([await format_message(link) for link in link_data])
+    # download_message = (
+    #     f"🔗 <b>Link Bypassed!</b>\n\n{link_message}\n\n"
+    #     f"<b>Time Taken</b>: {time_taken:.2f} seconds"
+    # )
+    # await message.reply_text(download_message)
+
+    final_url = link_data[0]['dlink']  # Assuming the first item has the 'dlink' field
+
+    encoded_url = urllib.parse.quote(final_url)
 
     download = aria2.add_uris([final_url], options={
         'continue': 'true',
@@ -1077,12 +1202,14 @@ async def handle_message(client: Client, message: Message):
             )
         while True:
             try:
+                first_dlink = link_data[0].get("dlink", "https://t.me/jffmain")
                 await update_status_message(
                     status_message,
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("Cᴀɴᴄᴇʟ ❌", callback_data=f"cancel_{download.gid}"),
-                         InlineKeyboardButton("🔥 Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟ", url="https://t.me/+jaaC9FCv3OgzNGZl")],
+                         InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=first_dlink)],
+                        [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")]
                     ])
                 )
                 break
