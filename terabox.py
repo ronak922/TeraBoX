@@ -322,6 +322,20 @@ download_count = 0
 total_download_size = 0
 
 TOKEN_SYSTEM_ENABLED = os.environ.get('TOKEN_SYSTEM_ENABLED', 'True').lower() == 'true'
+import sys
+@app.on_message(filters.command("restart"))
+async def restart_command(client: Client, message: Message):
+    # Only allow the owner to restart the bot
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("⚠️ This command is only available to the bot owner.")
+        return
+    
+    await message.reply_text("🔄 Restarting bot...")
+
+    # Restart the bot using system command (works on Linux/Unix systems)
+    # If you're on a Windows system, you can use a different method, like calling the script directly.
+
+    os.execv(sys.executable, ['python'] + sys.argv)
 
 async def get_settings():
     """Get bot settings from database"""
@@ -1192,11 +1206,10 @@ async def handle_message(client: Client, message: Message):
 
         status_text = (
             f"📦 <b>{download.name}</b>\n"
-            f"⏳ Progress: {progress:.2f}%\n"
+            f"📊 <b>Pʀᴏɢʀᴇss:</b> {progress:.2f}%\n"
             f"⚡ <b>Sᴘᴇᴇᴅ:</b> {format_size(download.download_speed)}/s | <b>ETA:</b> {download.eta}\n"
             f"🕒 <b>Eʟᴀᴘsᴇᴅ:</b> {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"📝 <b>Fɪʟᴇ Sɪᴢᴇ:</b> {format_size(download.total_length)} | "
-            f"📈 <b>Rᴇᴍᴀɪɴɪɴɢ:</b> {format_size(download.total_length - download.downloaded_length)}"
+            f"📝 <b>Fɪʟᴇ Sɪᴢᴇ:</b> {format_size(download.total_length)}\n"
             )
         while True:
             try:
@@ -1205,7 +1218,7 @@ async def handle_message(client: Client, message: Message):
                     status_message,
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Cᴀɴᴄᴇʟ ❌", callback_data=f"cancel_{download.gid}"),
+                        [InlineKeyboardButton("Sᴛᴏᴘ ⏱️", callback_data=f"cancel_{download.gid}"),
                          InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=first_dlink)],
                         [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")]
                     ])
@@ -1222,7 +1235,12 @@ async def handle_message(client: Client, message: Message):
     caption = (
         f"✨ {download.name}\n"
         f"⚡ <b>Vɪᴅᴇᴏ Bʏ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
-        f"🚀 <b>ᴘᴏᴡᴇʀᴇᴅ ʙʏ:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
+    )
+    caption_btn = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("NʏxKɪɴɢX 🔥", url="https://t.me/NyxKingx"),
+             InlineKeyboardButton("⚡ Cʜᴀɴɴᴇʟs",url="https://t.me/jffmain") ]  # Add button with callback data
+        ]
     )
 
     last_update_time = time.time()
@@ -1373,6 +1391,7 @@ async def handle_message(client: Client, message: Message):
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
                             caption=part_caption,
+                            reply_markup=caption_btn,
                             progress=upload_progress,
                             file_name=os.path.basename(part),
                             supports_streaming=True,
@@ -1388,6 +1407,7 @@ async def handle_message(client: Client, message: Message):
                         sent = await client.send_video(
                             DUMP_CHAT_ID, part,
                             caption=part_caption,
+                            reply_markup=caption_btn,
                             progress=upload_progress,
                             width=width,
                             height=height,
@@ -1395,6 +1415,7 @@ async def handle_message(client: Client, message: Message):
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
                             caption=part_caption,
+                            reply_markup=caption_btn,
                             width=width,
                             height=height,
                         )
@@ -1417,6 +1438,7 @@ async def handle_message(client: Client, message: Message):
                     sent = await user.send_video(
                         DUMP_CHAT_ID, file_path,
                         caption=part_caption,
+                        reply_markup=caption_btn,
                         progress=upload_progress,
                         width=width,
                         height=height,
@@ -1432,6 +1454,7 @@ async def handle_message(client: Client, message: Message):
                             await app.send_video(
                                 message.chat.id, sent.video.file_id,
                                 caption=part_caption,
+                                reply_markup=caption_btn,
                                 width=width,
                                 height=height,
                             )
@@ -1440,6 +1463,7 @@ async def handle_message(client: Client, message: Message):
                             await app.send_video(
                                 message.chat.id, file_path,
                                 caption=part_caption,
+                                reply_markup=caption_btn,
                                 width=width,
                                 height=height,
                             )
@@ -1448,6 +1472,7 @@ async def handle_message(client: Client, message: Message):
                     await app.send_video(
                         message.chat.id, file_path,
                         caption=part_caption,
+                        reply_markup=caption_btn,
                         progress=upload_progress,
                         width=width,
                         height=height,
@@ -1457,6 +1482,7 @@ async def handle_message(client: Client, message: Message):
                     sent = await client.send_video(
                         DUMP_CHAT_ID, file_path,
                         caption=part_caption,
+                        reply_markup=caption_btn,
                         progress=upload_progress,
                         width=width,
                         height=height,
@@ -1465,6 +1491,7 @@ async def handle_message(client: Client, message: Message):
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
                             caption=part_caption,
+                            reply_markup=caption_btn,
                             width=width,
                             height=height,
                         )
@@ -1473,6 +1500,7 @@ async def handle_message(client: Client, message: Message):
                         await client.send_video(
                             message.chat.id, part,
                             caption=part_caption,
+                            reply_markup=caption_btn,
                             width=width,
                             height=height,
                         )
@@ -1481,6 +1509,7 @@ async def handle_message(client: Client, message: Message):
                     await client.send_video(
                         message.chat.id, file_path,
                         caption=part_caption,
+                        reply_markup=caption_btn,
                         progress=upload_progress,
                         width=width,
                         height=height,
