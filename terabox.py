@@ -175,9 +175,9 @@ collection = db[COLLECTION_NAME]
 
 app = Client("user_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-with Client("user_session", api_id=API_ID, api_hash=API_HASH) as app:
-    print("Session string generated successfully!")
-    print(f"Session String: {app.export_session_string()}")
+# with Client("user_session", api_id=API_ID, api_hash=API_HASH) as app:
+#     print("Session string generated successfully!")
+#     print(f"Session String: {app.export_session_string()}")
 
 user = None
 SPLIT_SIZE = 2093796556
