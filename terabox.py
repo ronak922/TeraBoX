@@ -1509,7 +1509,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             disable_notification=True,
-                            has_spoiler=True,
                             request_timeout=3600
                         )
                         await app.copy_message(
@@ -1523,7 +1522,6 @@ async def handle_message(client: Client, message: Message):
                             progress=upload_progress,
                             width=width,
                             height=height,
-                            has_spoiler=True
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
@@ -1531,7 +1529,6 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
-                            has_spoiler=True
                         )
                     os.remove(part)
             finally:
@@ -1556,7 +1553,6 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
-                        has_spoiler=True
                     )
                     try:
                         await app.copy_message(
@@ -1572,7 +1568,6 @@ async def handle_message(client: Client, message: Message):
                                 reply_markup=caption_btn,
                                 width=width,
                                 height=height,
-                                has_spoiler=True
                             )
                         except Exception as e2:
                             logger.error(f"Error sending video: {e2}")
@@ -1582,7 +1577,6 @@ async def handle_message(client: Client, message: Message):
                                 reply_markup=caption_btn,
                                 width=width,
                                 height=height,
-                                has_spoiler=True
                             )
                 except Exception as e:
                     logger.error(f"Error sending video: {e}")
@@ -1593,7 +1587,6 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
-                        has_spoiler=True
                     )
             else:
                 try:
@@ -1604,7 +1597,6 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
-                        has_spoiler=True
                     )
                     try:
                         await client.send_video(
@@ -1613,7 +1605,6 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
-                            has_spoiler=True
                         )
                     except Exception as e:
                         logger.error(f"Failed to send video using file_id: {e}")
@@ -1623,7 +1614,6 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
-                            has_spoiler=True
                         )
                 except Exception as e:
                     logger.error(f"Failed to send video: {e}")
@@ -1634,7 +1624,6 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
-                        has_spoiler=True
                     )
 
         if os.path.exists(file_path):
