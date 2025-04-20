@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import os
 import logging
+import subprocess
+import asyncio
+import os
 import math
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, CallbackQuery
@@ -443,6 +446,78 @@ async def manage_forcesub_callback(client, callback_query: CallbackQuery):
     ])
     
     await callback_query.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
+
+async def check_and_fix_video(path):
+    try:
+        # Get initial video dimensions
+        width, height = await get_video_dimensions(path)
+
+        # If dimensions are invalid, set defaults
+        if not width or not height:
+            print("Invalid video dimensions, using default.")
+            width, height = 1280, 720  # Default safe dimensions
+
+        # Check if video dimensions are within acceptable ranges
+        if width < 480 or height < 480 or width > 1920 or height > 1920 or width == height:
+            fixed_path = "fixed_" + os.path.basename(path)
+
+            # Reencode the video if needed
+            success = await reencode_video(path, fixed_path)
+
+            if success:
+                # Get new dimensions after reencoding
+                new_width, new_height = await get_video_dimensions(fixed_path)
+                if new_width and new_height:
+                    return fixed_path, new_width, new_height
+                else:
+                    print(f"Failed to get new video dimensions for {fixed_path}. Using original.")
+                    return path, width, height
+            else:
+                print(f"Failed to reencode video at {path}. Using original.")
+                return path, width, height
+        else:
+            # If dimensions are valid, just return the original path and dimensions
+            return path, width, height
+
+    except Exception as e:
+        print(f"Error processing video {path}: {e}")
+        return path, 1280, 720  # Return default dimensions in case of an error
+
+import subprocess
+import os
+
+async def reencode_video(input_path: str, output_path: str) -> bool:
+    """
+    Reencode the video to fix dimensions or reformat.
+    Uses ffmpeg to reencode the video.
+    Returns True if successful, False if failed.
+    """
+    try:
+        # Construct the ffmpeg command to reencode the video
+        command = [
+            'ffmpeg', 
+            '-i', input_path,  # Input video file path
+            '-vf', 'scale=1280:720',  # Resize video to 1280x720 (or any desired size)
+            '-c:v', 'libx264',  # Video codec
+            '-c:a', 'aac',  # Audio codec
+            '-strict', 'experimental',  # Use experimental codecs if necessary
+            output_path  # Output video file path
+        ]
+        
+        # Execute the command using subprocess
+        process = subprocess.run(command, capture_output=True, text=True)
+
+        # Check if the process completed successfully
+        if process.returncode == 0:
+            print(f"Video reencoded successfully: {output_path}")
+            return True
+        else:
+            print(f"Error reencoding video: {process.stderr}")
+            return False
+    except Exception as e:
+        print(f"Error in reencoding video: {e}")
+        return False
+
 
 @app.on_callback_query(filters.regex("^add_normal_channel$"))
 async def add_normal_channel(client, callback_query: CallbackQuery):
@@ -1168,7 +1243,7 @@ async def handle_message(client: Client, message: Message):
         'split': '16',  # More parallel download
     })
 
-    sticker_msg = await message.reply_sticker("CAACAgUAAxkBAAEBN_VoAmHm1e-bdTtSNzujzGmTS9RoSgACFQ0AAnwFIFf-c66A7qeNLDYE")
+    sticker_msg = await message.reply_sticker("CAACAgIAAxkBAAEBOPtoBJnc2s0i96Z6aFCJW-ZVqFPeyAACFh4AAuzxOUkNYHq7o3u0ODYE")
     await asyncio.sleep(1)
     await sticker_msg.delete()
     status_message = await message.reply_text(
@@ -1339,34 +1414,65 @@ async def handle_message(client: Client, message: Message):
             logger.error(f"Split error: {e}")
             raise
 
+        
+
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         part_caption = caption
 
-        # async def get_video_dimensions(video_path):
-        #     try:
+        async def get_video_dimensions(video_path):
+            try:
                 
-        #         cmd = [
-        #             'ffprobe', '-v', 'error',
-        #             '-select_streams', 'v:0', 
-        #             '-show_entries', 'stream=width,height',
-        #             '-of', 'csv=p=0', 
-        #             video_path
-        #         ] 
-        #         process = await asyncio.create_subprocess_exec(
-        #             *cmd,
-        #             stdout=asyncio.subprocess.PIPE,
-        #             stderr=asyncio.subprocess.PIPE
-        #         )
-        #         stdout, stderr = await process.communicate()
-        #         if stdout:
-        #             dimensions = stdout.decode().strip().split(',')
-        #             if len(dimensions) == 2:
-        #                 return int(dimensions[0]), int(dimensions[1])
-        #         return None, None
-        #     except Exception as e:
-        #             logger.error(f"Error getting video dimensions: {e}")
-        #             return None, None
+                result = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                     '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', file_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT
+                )
+
+                print(result.stderr.decode())
+                print(result.stdout.decode())
+
+                width, height = map(int, result.stdout.decode().strip().split('x'))
+                return width, height
+
+            except Exception as e:
+                print(f"Error getting video dimensions: {e}")
+                return 1280, 720
+            
+        async def reencode_video(input_path, output_path):
+                try:
+                    cmd = [
+                        'ffmpeg', '-i', input_path,
+                        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                        '-metadata:s:v', 'rotate=0',
+                        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                        '-c:a', 'aac', '-b:a', '128k',
+                        output_path
+                    ]
+                    process = await asyncio.create_subprocess_exec(*cmd)
+                    await process.communicate()
+                    return os.path.exists(output_path)
+                except Exception as e:
+                    print(f"Error reencoding video: {e}")
+                    return False
+                
+        # async def check_and_fix_video(path):
+        #     width, height = await get_video_dimensions(path)
+        #     if not width or not height:
+        #         print("Invalid video dimensions, using default.")
+        #         width, height = 1280, 720  # Default safe dimensions
+            
+        #     if width < 480 or height < 480 or width > 1920 or height > 1920 or width == height:
+        #         fixed_path = "fixed_" + os.path.basename(path)
+        #         success = await reencode_video(path, fixed_path)
+
+        #         if success:
+        #             new_width, new_height = await get_video_dimensions(fixed_path)
+        #             return fixed_path, new_width, new_height
+        #         return path, width, height
+
+
         
         if file_size > SPLIT_SIZE:
             await update_status(
@@ -1390,7 +1496,7 @@ async def handle_message(client: Client, message: Message):
                         f"📦 <b>Sɪᴢᴇ:</b> {format_size(os.path.getsize(part))}"
                     )
 
-                    width, height = await get_video_dimensions(part)
+                    fixed_path, width, height = await check_and_fix_video(part)
           
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
@@ -1403,6 +1509,7 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             disable_notification=True,
+                            has_spoiler=True,
                             request_timeout=3600
                         )
                         await app.copy_message(
@@ -1416,6 +1523,7 @@ async def handle_message(client: Client, message: Message):
                             progress=upload_progress,
                             width=width,
                             height=height,
+                            has_spoiler=True
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
@@ -1423,6 +1531,7 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
+                            has_spoiler=True
                         )
                     os.remove(part)
             finally:
@@ -1436,7 +1545,7 @@ async def handle_message(client: Client, message: Message):
                 f"Size: {format_size(file_size)}"
             )
 
-            width, height = await get_video_dimensions(file_path)           
+            fixed_path, width, height = await check_and_fix_video(file_path)          
             
             if USER_SESSION_STRING:
                 try:
@@ -1447,6 +1556,7 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
+                        has_spoiler=True
                     )
                     try:
                         await app.copy_message(
@@ -1462,6 +1572,7 @@ async def handle_message(client: Client, message: Message):
                                 reply_markup=caption_btn,
                                 width=width,
                                 height=height,
+                                has_spoiler=True
                             )
                         except Exception as e2:
                             logger.error(f"Error sending video: {e2}")
@@ -1471,6 +1582,7 @@ async def handle_message(client: Client, message: Message):
                                 reply_markup=caption_btn,
                                 width=width,
                                 height=height,
+                                has_spoiler=True
                             )
                 except Exception as e:
                     logger.error(f"Error sending video: {e}")
@@ -1481,6 +1593,7 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
+                        has_spoiler=True
                     )
             else:
                 try:
@@ -1491,6 +1604,7 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
+                        has_spoiler=True
                     )
                     try:
                         await client.send_video(
@@ -1499,6 +1613,7 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
+                            has_spoiler=True
                         )
                     except Exception as e:
                         logger.error(f"Failed to send video using file_id: {e}")
@@ -1508,6 +1623,7 @@ async def handle_message(client: Client, message: Message):
                             reply_markup=caption_btn,
                             width=width,
                             height=height,
+                            has_spoiler=True
                         )
                 except Exception as e:
                     logger.error(f"Failed to send video: {e}")
@@ -1518,12 +1634,13 @@ async def handle_message(client: Client, message: Message):
                         progress=upload_progress,
                         width=width,
                         height=height,
+                        has_spoiler=True
                     )
 
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        await message.reply_sticker("CAACAgIAAxkBAAEBN-9oAl4Ff6pcXynylSzeAAFBMzbPQJQAAsYOAAKVy0BKjW_8api2owQ2BA")
+        await message.reply_sticker("CAACAgUAAxkBAAEBOQVoBLWRUSRCieoGNbvQ5cJ1U8qtWgACKg0AAprJqVcDgujJs5TjwTYE")
         # await message.reply_text("✅ Uᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ! Eɴᴊᴏʏ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ. 😎")
 
     start_time = datetime.now()

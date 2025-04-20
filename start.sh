@@ -2,6 +2,7 @@
 
 # Start aria2c in background (not using --daemon)
 aria2c --enable-rpc --rpc-listen-all=false --rpc-allow-origin-all \
+  --rpc-listen-port=6800 \
   --max-tries=50 --retry-wait=3 --continue=true \
   --min-split-size=4M --split=10 --allow-overwrite=true \
   > /tmp/aria2.log 2>&1 &
@@ -13,12 +14,13 @@ for i in $(seq 1 10); do
     echo "aria2c is up!"
     break
   fi
-  echo "Still waiting for aria2c..."
+  echo "Still waiting for aria2c... ($i/10)"
   sleep 1
 done
 
-# Debug log (optional)
+# Optional: log aria2 output
 cat /tmp/aria2.log
 
-# Run your Python bot
-python terabox.py
+# Launch the Python bot
+echo "Starting the bot..."
+exec python terabox.py
