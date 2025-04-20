@@ -4,9 +4,6 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import os
 import logging
-import subprocess
-import asyncio
-import os
 import math
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, CallbackQuery
@@ -447,78 +444,6 @@ async def manage_forcesub_callback(client, callback_query: CallbackQuery):
     
     await callback_query.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
 
-async def check_and_fix_video(path):
-    try:
-        # Get initial video dimensions
-        width, height = await get_video_dimensions(path)
-
-        # If dimensions are invalid, set defaults
-        if not width or not height:
-            print("Invalid video dimensions, using default.")
-            width, height = 1280, 720  # Default safe dimensions
-
-        # Check if video dimensions are within acceptable ranges
-        if width < 480 or height < 480 or width > 1920 or height > 1920 or width == height:
-            fixed_path = "fixed_" + os.path.basename(path)
-
-            # Reencode the video if needed
-            success = await reencode_video(path, fixed_path)
-
-            if success:
-                # Get new dimensions after reencoding
-                new_width, new_height = await get_video_dimensions(fixed_path)
-                if new_width and new_height:
-                    return fixed_path, new_width, new_height
-                else:
-                    print(f"Failed to get new video dimensions for {fixed_path}. Using original.")
-                    return path, width, height
-            else:
-                print(f"Failed to reencode video at {path}. Using original.")
-                return path, width, height
-        else:
-            # If dimensions are valid, just return the original path and dimensions
-            return path, width, height
-
-    except Exception as e:
-        print(f"Error processing video {path}: {e}")
-        return path, 1280, 720  # Return default dimensions in case of an error
-
-import subprocess
-import os
-
-async def reencode_video(input_path: str, output_path: str) -> bool:
-    """
-    Reencode the video to fix dimensions or reformat.
-    Uses ffmpeg to reencode the video.
-    Returns True if successful, False if failed.
-    """
-    try:
-        # Construct the ffmpeg command to reencode the video
-        command = [
-            'ffmpeg', 
-            '-i', input_path,  # Input video file path
-            '-vf', 'scale=1280:720',  # Resize video to 1280x720 (or any desired size)
-            '-c:v', 'libx264',  # Video codec
-            '-c:a', 'aac',  # Audio codec
-            '-strict', 'experimental',  # Use experimental codecs if necessary
-            output_path  # Output video file path
-        ]
-        
-        # Execute the command using subprocess
-        process = subprocess.run(command, capture_output=True, text=True)
-
-        # Check if the process completed successfully
-        if process.returncode == 0:
-            print(f"Video reencoded successfully: {output_path}")
-            return True
-        else:
-            print(f"Error reencoding video: {process.stderr}")
-            return False
-    except Exception as e:
-        print(f"Error in reencoding video: {e}")
-        return False
-
-
 @app.on_callback_query(filters.regex("^add_normal_channel$"))
 async def add_normal_channel(client, callback_query: CallbackQuery):
     if callback_query.from_user.id not in ADMINS:
@@ -928,7 +853,7 @@ async def start_command(client: Client, message: Message):
             final_msg = (f"<b>Sᴇɴᴅ Tᴇʀᴀʙᴏx Lɪɴᴋ Tᴏ Dᴏᴡɴʟᴏᴀᴅ Vɪᴅᴇᴏ</b>")
 
             new_btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/nyxKingXLinks")]
+                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXLinks")]
                 ])
 
             # 👑 Bypass shortening for OWNER
@@ -1001,64 +926,65 @@ async def find_between(string, start, end):
 
 
 async def fetch_download_link_async(url):
-    async with aiohttp.ClientSession(cookies=my_cookie, headers=my_headers) as my_session:
-        try:
-            async with my_session.get(url) as response:
-                response.raise_for_status()
-                response_data = await response.text()
+    my_session = aiohttp.ClientSession(cookies=my_cookie)
+    my_session.headers.update(my_headers)
+    try:
+        async with my_session.get(url) as response:
+            response.raise_for_status()
+            response_data = await response.text()
 
-                js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-                log_id = await find_between(response_data, 'dp-logid=', '&')
+            js_token = await find_between(response_data, 'fn%28%22', '%22%29')
+            log_id = await find_between(response_data, 'dp-logid=', '&')
 
-                if not js_token or not log_id:
+            if not js_token or not log_id:
+                return None
+
+            request_url = str(response.url)
+            surl = request_url.split('surl=')[1]
+            params = {
+                'app_id': '250528',
+                'web': '1',
+                'channel': 'dubox',
+                'clienttype': '0',
+                'jsToken': js_token,
+                'dplogid': log_id,
+                'page': '1',
+                'num': '20',
+                'order': 'time',
+                'desc': '1',
+                'site_referer': request_url,
+                'shorturl': surl,
+                'root': '1'
+            }
+
+            async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
+                response_data2 = await response2.json()
+                if 'list' not in response_data2:
                     return None
 
-                request_url = str(response.url)
-                surl = request_url.split('surl=')[1]
-                params = {
-                    'app_id': '250528',
-                    'web': '1',
-                    'channel': 'dubox',
-                    'clienttype': '0',
-                    'jsToken': js_token,
-                    'dplogid': log_id,
-                    'page': '1',
-                    'num': '20',
-                    'order': 'time',
-                    'desc': '1',
-                    'site_referer': request_url,
-                    'shorturl': surl,
-                    'root': '1'
-                }
+                # Process directory if needed
+                if response_data2['list'][0]['isdir'] == "1":
+                    params.update({
+                        'dir': response_data2['list'][0]['path'],
+                        'order': 'asc',
+                        'by': 'name',
+                        'dplogid': log_id
+                    })
+                    params.pop('desc')
+                    params.pop('root')
+                    async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
+                        response_data3 = await response3.json()
+                        if 'list' not in response_data3:
+                            return None
+                        return response_data3['list']
+                return response_data2['list']
 
-                async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
-                    response_data2 = await response2.json()
-                    if 'list' not in response_data2:
-                        return None
-
-                    # Process directory if needed
-                    if response_data2['list'][0]['isdir'] == "1":
-                        params.update({
-                            'dir': response_data2['list'][0]['path'],
-                            'order': 'asc',
-                            'by': 'name',
-                            'dplogid': log_id
-                        })
-                        params.pop('desc')
-                        params.pop('root')
-                        async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
-                            response_data3 = await response3.json()
-                            if 'list' not in response_data3:
-                                return None
-                            return response_data3['list']
-                    return response_data2['list']
-
-        except aiohttp.ClientResponseError as e:
-            print(f"Error fetching download link: {e}")
-            return None
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            return None
+    except aiohttp.ClientResponseError as e:
+        print(f"Error fetching download link: {e}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return None
 
 async def format_message(link):
     """
@@ -1072,9 +998,6 @@ async def format_message(link):
     return f"🔗 <b>{title}</b>\n📝 Size: {size}\n[Download Here]({dlink})"
 
 
-def contains_terabox_link(text: str) -> bool:
-    return any(domain in text for domain in VALID_DOMAINS)
-
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
     if message.text.startswith('/'):
@@ -1082,9 +1005,6 @@ async def handle_message(client: Client, message: Message):
 
     if not message.from_user:
         return
-
-    if not contains_terabox_link(message.text):
-        return  # Ignore non-terabox messages
 
     user_id = message.from_user.id
 
@@ -1249,7 +1169,7 @@ async def handle_message(client: Client, message: Message):
     status_message = await message.reply_text(
         "🚀 Hᴀɴɢ ᴛɪɢʜᴛ! Yᴏᴜʀ ᴍᴇᴅɪᴀ ɪs ᴏɴ ɪᴛs ᴡᴀʏ... 😈",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⛔ Sᴛᴏᴘ", callback_data=f"cancel_{download.gid}")] 
+            [InlineKeyboardButton("Sᴛᴏᴘ ⏹️", callback_data=f"cancel_{download.gid}")] 
         ])
     )
 
@@ -1401,7 +1321,10 @@ async def handle_message(client: Client, message: Message):
                     '-c', 'copy', '-map', '0',
                     '-metadata:s:v', 'rotate=0',  # Preserve original rotation
                     '-avoid_negative_ts', 'make_zero',
+                    '-s', '1280x720',
+                    '-aspect', '16:9',
                     '-threads', '10',  # Use more CPU threads
+
                     output_path
                 ]
                 
@@ -1414,65 +1337,34 @@ async def handle_message(client: Client, message: Message):
             logger.error(f"Split error: {e}")
             raise
 
-        
-
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         part_caption = caption
 
-        async def get_video_dimensions(video_path):
-            try:
+        # async def get_video_dimensions(video_path):
+        #     try:
                 
-                result = subprocess.run(
-                    ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                     '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', file_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT
-                )
-
-                print(result.stderr.decode())
-                print(result.stdout.decode())
-
-                width, height = map(int, result.stdout.decode().strip().split('x'))
-                return width, height
-
-            except Exception as e:
-                print(f"Error getting video dimensions: {e}")
-                return 1280, 720
-            
-        async def reencode_video(input_path, output_path):
-                try:
-                    cmd = [
-                        'ffmpeg', '-i', input_path,
-                        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-                        '-metadata:s:v', 'rotate=0',
-                        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                        '-c:a', 'aac', '-b:a', '128k',
-                        output_path
-                    ]
-                    process = await asyncio.create_subprocess_exec(*cmd)
-                    await process.communicate()
-                    return os.path.exists(output_path)
-                except Exception as e:
-                    print(f"Error reencoding video: {e}")
-                    return False
-                
-        # async def check_and_fix_video(path):
-        #     width, height = await get_video_dimensions(path)
-        #     if not width or not height:
-        #         print("Invalid video dimensions, using default.")
-        #         width, height = 1280, 720  # Default safe dimensions
-            
-        #     if width < 480 or height < 480 or width > 1920 or height > 1920 or width == height:
-        #         fixed_path = "fixed_" + os.path.basename(path)
-        #         success = await reencode_video(path, fixed_path)
-
-        #         if success:
-        #             new_width, new_height = await get_video_dimensions(fixed_path)
-        #             return fixed_path, new_width, new_height
-        #         return path, width, height
-
-
+        #         cmd = [
+        #             'ffprobe', '-v', 'error',
+        #             '-select_streams', 'v:0', 
+        #             '-show_entries', 'stream=width,height',
+        #             '-of', 'csv=p=0', 
+        #             video_path
+        #         ] 
+        #         process = await asyncio.create_subprocess_exec(
+        #             *cmd,
+        #             stdout=asyncio.subprocess.PIPE,
+        #             stderr=asyncio.subprocess.PIPE
+        #         )
+        #         stdout, stderr = await process.communicate()
+        #         if stdout:
+        #             dimensions = stdout.decode().strip().split(',')
+        #             if len(dimensions) == 2:
+        #                 return int(dimensions[0]), int(dimensions[1])
+        #         return None, None
+        #     except Exception as e:
+        #             logger.error(f"Error getting video dimensions: {e}")
+        #             return None, None
         
         if file_size > SPLIT_SIZE:
             await update_status(
@@ -1496,7 +1388,7 @@ async def handle_message(client: Client, message: Message):
                         f"📦 <b>Sɪᴢᴇ:</b> {format_size(os.path.getsize(part))}"
                     )
 
-                    fixed_path, width, height = await check_and_fix_video(part)
+                    width, height = await get_video_dimensions(part)
           
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
@@ -1542,7 +1434,7 @@ async def handle_message(client: Client, message: Message):
                 f"Size: {format_size(file_size)}"
             )
 
-            fixed_path, width, height = await check_and_fix_video(file_path)          
+            width, height = await get_video_dimensions(file_path)           
             
             if USER_SESSION_STRING:
                 try:
