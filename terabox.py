@@ -923,33 +923,61 @@ async def find_between(string, start, end):
     end_index = string.find(end, start_index)
     return string[start_index:end_index]
 
-
-
 import aiohttp
-import asyncio
+import urllib.parse
+
+async def find_between(text, start, end):
+    try:
+        return text.split(start)[1].split(end)[0]
+    except IndexError:
+        return None
 
 async def fetch_download_link_async(url):
+    encoded_url = urllib.parse.quote(url)
+    api_url = f"https://terabox.pikaapis.workers.dev/?url={encoded_url}"
+
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
+
+        # First fallback: fetch the general link
         try:
-            # Fetch the page content
+            async with my_session.get(api_url) as response:
+                response.raise_for_status()
+                response_data = await response.json()
+
+            link = response_data.get("link")
+            direct_link = response_data.get("direct_link")
+
+            # Test direct_link by checking if it returns error 31362
+            if direct_link:
+                async with my_session.head(direct_link) as check_response:
+                    if check_response.status == 200:
+                        return direct_link
+                    else:
+                        print("Direct link fallback failed, using regular link if present.")
+            
+            if link:
+                return link
+
+        except Exception as e:
+            print(f"API fallback failed: {e}")
+
+        # Final fallback: Manual page scraping
+        try:
             async with my_session.get(url) as response:
                 response.raise_for_status()
                 response_data = await response.text()
 
-            # Extract jsToken and logId
             js_token = await find_between(response_data, 'fn%28%22', '%22%29')
             log_id = await find_between(response_data, 'dp-logid=', '&')
 
-            # Check if both tokens are found
             if not js_token or not log_id:
                 print("Required tokens not found.")
                 return None
 
             request_url = str(response.url)
-            surl = request_url.split('surl=')[1]  # Extract short URL from request URL
+            surl = request_url.split('surl=')[1]
 
-            # Define request parameters
             params = {
                 'app_id': '250528',
                 'web': '1',
@@ -966,16 +994,13 @@ async def fetch_download_link_async(url):
                 'root': '1'
             }
 
-            # Fetch the download link information
             async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
                 response_data2 = await response2.json()
                 if 'list' not in response_data2:
-                    print("No list found in the response.")
+                    print("No list found.")
                     return None
 
-                # Process directory if needed
                 if response_data2['list'][0]['isdir'] == "1":
-                    # Update parameters for directory listing
                     params.update({
                         'dir': response_data2['list'][0]['path'],
                         'order': 'asc',
@@ -984,24 +1009,20 @@ async def fetch_download_link_async(url):
                     })
                     params.pop('desc')
                     params.pop('root')
-                    # Fetch the directory listing
+
                     async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
                         response_data3 = await response3.json()
                         if 'list' not in response_data3:
-                            print("No list found in the directory response.")
                             return None
                         return response_data3['list']
+
                 return response_data2['list']
 
-        except aiohttp.ClientResponseError as e:
-            print(f"Error fetching download link: {e}")
-            return None
-        except asyncio.TimeoutError:
-            print("Request timed out.")
-            return None
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"Final fallback failed: {e}")
             return None
+
+
 
 # To call the function and test the code:
 # asyncio.run(fetch_download_link_async('your_url_here'))
@@ -1156,11 +1177,28 @@ async def handle_message(client: Client, message: Message):
         return
     
     start_time = time.time()  # Start time to measure how long the process takes
-    link_data = await fetch_download_link_async(url)
+    link_data = await fetch_download_link_async(message.text)
 
-    if not link_data or not link_data[0].get("dlink"):
-        await message.reply_text("⚠️ Failed to fetch the download link.")
+    print("Link Data:", link_data)
+
+    if not link_data:
+        await message.reply_text(f"⚠️ Error: {link_data}")
         return
+    
+    if isinstance(link_data, str):
+        direct_link = link_data
+    else:
+        if isinstance(link_data, list):
+            first_item = link_data[0]
+            direct_link = first_item.get('dlink')
+        else:
+            await message.reply_text("⚠️ Unexpected data format received.")
+            return
+    if not direct_link:
+        await message.reply_text("⚠️ Error: Direct link not found.")
+        return
+        
+
     
     end_time = time.time()
     time_taken = end_time - start_time
@@ -1174,11 +1212,11 @@ async def handle_message(client: Client, message: Message):
     # )
     # await message.reply_text(download_message)
 
-    final_url = link_data[0]['dlink']  # Assuming the first item has the 'dlink' field
+    # direct_url = link_data  # Assuming the first item has the 'dlink' field
 
-    encoded_url = urllib.parse.quote(final_url)
+    # encoded_url = urllib.parse.quote(final_url)
 
-    download = aria2.add_uris([final_url], options={
+    download = aria2.add_uris([direct_link], options={
         'continue': 'true',
         'split': '16',  # More parallel download
     })
@@ -1233,13 +1271,13 @@ async def handle_message(client: Client, message: Message):
             )
         while True:
             try:
-                first_dlink = link_data[0].get("dlink", "https://t.me/jffmain")
+                # first_dlink = link_data[0].get("dlink", "https://t.me/jffmain")
                 await update_status_message(
                     status_message,
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("Sᴛᴏᴘ ⏱️", callback_data=f"cancel_{download.gid}"),
-                         InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=first_dlink)],
+                         InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=direct_link)],
                         [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXlinks")]
                     ])
                 )
