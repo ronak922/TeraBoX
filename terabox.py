@@ -70,56 +70,60 @@ logging.getLogger("pyrogram.session").setLevel(logging.ERROR)
 logging.getLogger("pyrogram.connection").setLevel(logging.ERROR)
 logging.getLogger("pyrogram.dispatcher").setLevel(logging.ERROR)
 
+# from aria2p import Aria2API, Aria2Client
+
+# Connect to the local Aria2 instance
 aria2 = Aria2API(
     Aria2Client(
-        host="http://localhost",
-        port=6800,
-        secret=""
+        host="http://localhost",  # Aria2 RPC host
+        port=6800,               # RPC port
+        secret=""                # RPC secret key (empty if not used)
     )
 )
+
+# Try removing the problematic option or modifying it
 options = {
-    # Connection settings
-    "max-connection-per-server": "16",      # Increase from 8 to 16 for more parallel connections
-    "split": "32",                          # Increase from 16 to 32 for more segments
+    "split": "64",                          # Increase from 16 to 64 for more segments
     "min-split-size": "1M",                 # Keep small split size for better parallelism
     "piece-length": "1M",                   # Smaller pieces for better resumability
-    "max-concurrent-downloads": "3",        # Reduce to 3 to avoid overwhelming the network
+    "max-concurrent-downloads": "5",        # Reduce to 5 to avoid overwhelming the network
     
     # Retry settings
-    "max-tries": "10",                      # Reduce from 50 to 10 (still plenty)
-    "retry-wait": "2",                      # Slightly faster retry
-    "connect-timeout": "10",                # Faster timeout for connection attempts
-    "timeout": "10",                        # Faster timeout for slow responses
+    "max-tries": "15",                      # Allow 15 retries
+    "retry-wait": "2",                      # Slightly faster retry interval
+    "connect-timeout": "5",                 # Faster timeout for connection attempts
+    "timeout": "5",                         # Faster timeout for slow responses
     
     # Performance settings
-    "disk-cache": "64M",                    # Add disk cache to reduce disk I/O
-    "file-allocation": "falloc",            # Use 'falloc' if your filesystem supports it (faster than 'none')
+    "disk-cache": "128M",                    # Increase disk cache size
+    "file-allocation": "falloc",            # Use 'falloc' for faster file allocation if supported
     "async-dns": "true",                    # Enable async DNS for faster lookups
     "enable-http-keep-alive": "true",       # Keep connections alive
-    "enable-http-pipelining": "true",       # Enable HTTP pipelining
+    "enable-http-pipelining": "true",
     
     # Continue and overwrite settings
-    "continue": "true",                     # Keep resume support
-    "allow-overwrite": "true",              # Keep force overwrite
+    "continue": "true",                     # Enable download resume
+    "allow-overwrite": "true",              # Allow file overwrite
     
     # Download limits
-    "max-download-limit": "0",              # No limit
-    "min-download-limit": "1M",             # Keep minimum speed
+    "max-download-limit": "0",              # No download limit
+    "min-download-limit": "2M",             # Ensure a minimum download speed of 2MB/s
     
     # Storage location
-    "dir": "/tmp/aria2_downloads",          # Keep same location
+    "dir": "/tmp/aria2_downloads",          # Download directory
     
     # BitTorrent settings (not used for Terabox but kept for completeness)
-    "bt-max-peers": "0",                    # Keep unlimited peers
-    "bt-request-peer-speed-limit": "10M",   # Keep same limit
-    "seed-ratio": "0.0",                    # Keep no seeding
+    "bt-max-peers": "0",                    # Unlimited number of peers
+    "bt-request-peer-speed-limit": "50M",   # Speed limit for peer requests
+    "seed-ratio": "0.0",                    # No seeding
 }
 
-
-
-
-aria2.set_global_options(options)
-
+# Test if this works without the problematic option
+try:
+    result = aria2.set_global_options(options)
+    print("Global options set successfully!")
+except Exception as e:
+    print(f"Error setting global options: {e}")
 
 
 API_ID = os.environ.get('TELEGRAM_API', '')
@@ -924,23 +928,31 @@ async def find_between(string, start, end):
 
 
 
+import aiohttp
+import asyncio
 
 async def fetch_download_link_async(url):
-    my_session = aiohttp.ClientSession(cookies=my_cookie)
-    my_session.headers.update(my_headers)
-    try:
-        async with my_session.get(url) as response:
-            response.raise_for_status()
-            response_data = await response.text()
+    async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
+        my_session.headers.update(my_headers)
+        try:
+            # Fetch the page content
+            async with my_session.get(url) as response:
+                response.raise_for_status()
+                response_data = await response.text()
 
+            # Extract jsToken and logId
             js_token = await find_between(response_data, 'fn%28%22', '%22%29')
             log_id = await find_between(response_data, 'dp-logid=', '&')
 
+            # Check if both tokens are found
             if not js_token or not log_id:
+                print("Required tokens not found.")
                 return None
 
             request_url = str(response.url)
-            surl = request_url.split('surl=')[1]
+            surl = request_url.split('surl=')[1]  # Extract short URL from request URL
+
+            # Define request parameters
             params = {
                 'app_id': '250528',
                 'web': '1',
@@ -957,13 +969,16 @@ async def fetch_download_link_async(url):
                 'root': '1'
             }
 
+            # Fetch the download link information
             async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
                 response_data2 = await response2.json()
                 if 'list' not in response_data2:
+                    print("No list found in the response.")
                     return None
 
                 # Process directory if needed
                 if response_data2['list'][0]['isdir'] == "1":
+                    # Update parameters for directory listing
                     params.update({
                         'dir': response_data2['list'][0]['path'],
                         'order': 'asc',
@@ -972,19 +987,27 @@ async def fetch_download_link_async(url):
                     })
                     params.pop('desc')
                     params.pop('root')
+                    # Fetch the directory listing
                     async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
                         response_data3 = await response3.json()
                         if 'list' not in response_data3:
+                            print("No list found in the directory response.")
                             return None
                         return response_data3['list']
                 return response_data2['list']
 
-    except aiohttp.ClientResponseError as e:
-        print(f"Error fetching download link: {e}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return None
+        except aiohttp.ClientResponseError as e:
+            print(f"Error fetching download link: {e}")
+            return None
+        except asyncio.TimeoutError:
+            print("Request timed out.")
+            return None
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return None
+
+# To call the function and test the code:
+# asyncio.run(fetch_download_link_async('your_url_here'))
 
 async def format_message(link):
     """
