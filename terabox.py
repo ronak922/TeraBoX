@@ -75,56 +75,53 @@ logging.getLogger("pyrogram.dispatcher").setLevel(logging.ERROR)
 # Connect to the local Aria2 instance
 aria2 = Aria2API(
     Aria2Client(
-        host="http://localhost",  # Aria2 RPC host
-        port=6800,               # RPC port
-        secret=""                # RPC secret key (empty if not used)
+        host="http://localhost",
+        port=6800,
+        secret=""
     )
 )
-
-# Try removing the problematic option or modifying it
 options = {
-    "split": "64",                          # Increase from 16 to 64 for more segments
+    # Connection settings
+    "max-connection-per-server": "16",      # Increase from 8 to 16 for more parallel connections
+    "split": "64",                          # Increase from 16 to 32 for more segments
     "min-split-size": "1M",                 # Keep small split size for better parallelism
     "piece-length": "1M",                   # Smaller pieces for better resumability
-    "max-concurrent-downloads": "5",        # Reduce to 5 to avoid overwhelming the network
+    "max-concurrent-downloads": "3",        # Reduce to 3 to avoid overwhelming the network
     
     # Retry settings
-    "max-tries": "15",                      # Allow 15 retries
-    "retry-wait": "2",                      # Slightly faster retry interval
-    "connect-timeout": "5",                 # Faster timeout for connection attempts
-    "timeout": "5",                         # Faster timeout for slow responses
+    "max-tries": "10",                      # Reduce from 50 to 10 (still plenty)
+    "retry-wait": "2",                      # Slightly faster retry
+    "connect-timeout": "10",                # Faster timeout for connection attempts
+    "timeout": "10",                        # Faster timeout for slow responses
     
     # Performance settings
-    "disk-cache": "128M",                    # Increase disk cache size
-    "file-allocation": "falloc",            # Use 'falloc' for faster file allocation if supported
+    "disk-cache": "64M",                    # Add disk cache to reduce disk I/O
+    "file-allocation": "falloc",            # Use 'falloc' if your filesystem supports it (faster than 'none')
     "async-dns": "true",                    # Enable async DNS for faster lookups
     "enable-http-keep-alive": "true",       # Keep connections alive
-    "enable-http-pipelining": "true",
+    "enable-http-pipelining": "true",       # Enable HTTP pipelining
     
     # Continue and overwrite settings
-    "continue": "true",                     # Enable download resume
-    "allow-overwrite": "true",              # Allow file overwrite
+    "continue": "true",                     # Keep resume support
+    "allow-overwrite": "true",              # Keep force overwrite
     
     # Download limits
-    "max-download-limit": "0",              # No download limit
-    "min-download-limit": "2M",             # Ensure a minimum download speed of 2MB/s
+    "max-download-limit": "0",              # No limit
+    "min-download-limit": "1M",             # Keep minimum speed
     
     # Storage location
-    "dir": "/tmp/aria2_downloads",          # Download directory
+    "dir": "/tmp/aria2_downloads",          # Keep same location
     
     # BitTorrent settings (not used for Terabox but kept for completeness)
-    "bt-max-peers": "0",                    # Unlimited number of peers
-    "bt-request-peer-speed-limit": "50M",   # Speed limit for peer requests
-    "seed-ratio": "0.0",                    # No seeding
+    "bt-max-peers": "0",                    # Keep unlimited peers
+    "bt-request-peer-speed-limit": "10M",   # Keep same limit
+    "seed-ratio": "0.0",                    # Keep no seeding
 }
 
-# Test if this works without the problematic option
-try:
-    result = aria2.set_global_options(options)
-    print("Global options set successfully!")
-except Exception as e:
-    print(f"Error setting global options: {e}")
 
+
+
+aria2.set_global_options(options)
 
 API_ID = os.environ.get('TELEGRAM_API', '')
 if len(API_ID) == 0:
