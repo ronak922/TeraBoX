@@ -853,7 +853,7 @@ async def start_command(client: Client, message: Message):
             final_msg = (f"<b>Sᴇɴᴅ Tᴇʀᴀʙᴏx Lɪɴᴋ Tᴏ Dᴏᴡɴʟᴏᴀᴅ Vɪᴅᴇᴏ</b>")
 
             new_btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")]
+                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/nyxKingXLinks")]
                 ])
 
             # 👑 Bypass shortening for OWNER
@@ -866,7 +866,7 @@ async def start_command(client: Client, message: Message):
                 reply_markup2 = InlineKeyboardMarkup([
                     [InlineKeyboardButton("Vᴇʀɪғʏ Tᴏᴋᴇɴ 🚀", url=short_url)],
                     [join_button, developer_button],
-                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")],
+                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXLinks")],
                 ])
 
                 
@@ -926,65 +926,64 @@ async def find_between(string, start, end):
 
 
 async def fetch_download_link_async(url):
-    my_session = aiohttp.ClientSession(cookies=my_cookie)
-    my_session.headers.update(my_headers)
-    try:
-        async with my_session.get(url) as response:
-            response.raise_for_status()
-            response_data = await response.text()
+    async with aiohttp.ClientSession(cookies=my_cookie, headers=my_headers) as my_session:
+        try:
+            async with my_session.get(url) as response:
+                response.raise_for_status()
+                response_data = await response.text()
 
-            js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-            log_id = await find_between(response_data, 'dp-logid=', '&')
+                js_token = await find_between(response_data, 'fn%28%22', '%22%29')
+                log_id = await find_between(response_data, 'dp-logid=', '&')
 
-            if not js_token or not log_id:
-                return None
-
-            request_url = str(response.url)
-            surl = request_url.split('surl=')[1]
-            params = {
-                'app_id': '250528',
-                'web': '1',
-                'channel': 'dubox',
-                'clienttype': '0',
-                'jsToken': js_token,
-                'dplogid': log_id,
-                'page': '1',
-                'num': '20',
-                'order': 'time',
-                'desc': '1',
-                'site_referer': request_url,
-                'shorturl': surl,
-                'root': '1'
-            }
-
-            async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
-                response_data2 = await response2.json()
-                if 'list' not in response_data2:
+                if not js_token or not log_id:
                     return None
 
-                # Process directory if needed
-                if response_data2['list'][0]['isdir'] == "1":
-                    params.update({
-                        'dir': response_data2['list'][0]['path'],
-                        'order': 'asc',
-                        'by': 'name',
-                        'dplogid': log_id
-                    })
-                    params.pop('desc')
-                    params.pop('root')
-                    async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
-                        response_data3 = await response3.json()
-                        if 'list' not in response_data3:
-                            return None
-                        return response_data3['list']
-                return response_data2['list']
+                request_url = str(response.url)
+                surl = request_url.split('surl=')[1]
+                params = {
+                    'app_id': '250528',
+                    'web': '1',
+                    'channel': 'dubox',
+                    'clienttype': '0',
+                    'jsToken': js_token,
+                    'dplogid': log_id,
+                    'page': '1',
+                    'num': '20',
+                    'order': 'time',
+                    'desc': '1',
+                    'site_referer': request_url,
+                    'shorturl': surl,
+                    'root': '1'
+                }
 
-    except aiohttp.ClientResponseError as e:
-        print(f"Error fetching download link: {e}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return None
+                async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
+                    response_data2 = await response2.json()
+                    if 'list' not in response_data2:
+                        return None
+
+                    # Process directory if needed
+                    if response_data2['list'][0]['isdir'] == "1":
+                        params.update({
+                            'dir': response_data2['list'][0]['path'],
+                            'order': 'asc',
+                            'by': 'name',
+                            'dplogid': log_id
+                        })
+                        params.pop('desc')
+                        params.pop('root')
+                        async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
+                            response_data3 = await response3.json()
+                            if 'list' not in response_data3:
+                                return None
+                            return response_data3['list']
+                    return response_data2['list']
+
+        except aiohttp.ClientResponseError as e:
+            print(f"Error fetching download link: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return None
 
 async def format_message(link):
     """
@@ -998,6 +997,9 @@ async def format_message(link):
     return f"🔗 <b>{title}</b>\n📝 Size: {size}\n[Download Here]({dlink})"
 
 
+def contains_terabox_link(text: str) -> bool:
+    return any(domain in text for domain in VALID_DOMAINS)
+
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
     if message.text.startswith('/'):
@@ -1005,6 +1007,9 @@ async def handle_message(client: Client, message: Message):
 
     if not message.from_user:
         return
+
+    if not contains_terabox_link(message.text):
+        return  # Ignore non-terabox messages
 
     user_id = message.from_user.id
 
@@ -1169,7 +1174,7 @@ async def handle_message(client: Client, message: Message):
     status_message = await message.reply_text(
         "🚀 Hᴀɴɢ ᴛɪɢʜᴛ! Yᴏᴜʀ ᴍᴇᴅɪᴀ ɪs ᴏɴ ɪᴛs ᴡᴀʏ... 😈",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Sᴛᴏᴘ ⏹️", callback_data=f"cancel_{download.gid}")] 
+            [InlineKeyboardButton("⛔ Sᴛᴏᴘ", callback_data=f"cancel_{download.gid}")] 
         ])
     )
 
@@ -1220,7 +1225,7 @@ async def handle_message(client: Client, message: Message):
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("Sᴛᴏᴘ ⏱️", callback_data=f"cancel_{download.gid}"),
                          InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=first_dlink)],
-                        [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/+jaaC9FCv3OgzNGZl")]
+                        [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXlinks")]
                     ])
                 )
                 break
