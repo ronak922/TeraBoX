@@ -1356,7 +1356,7 @@ async def handle_message(client: Client, message: Message):
         options={
             'continue': 'true',
             'split': '128',  
-            'max-connection-per-server': '32',
+            'max-connection-per-server': '16',
         }
     )
 
