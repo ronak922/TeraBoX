@@ -285,6 +285,113 @@ def has_valid_token(user_id):
             return True
     return False
 
+async def full_userbase():
+    # Retrieve all documents from the user_requests collection
+    user_docs = collection.find()  # MongoDB find() returns a cursor for all documents in the collection
+    
+    # Extract user IDs from the documents
+    user_ids = [doc['_id'] for doc in user_docs]  # Assuming '_id' is the user ID field
+    
+    return user_ids
+
+from pyrogram.errors import UserIsBlocked, FloodWait, InputUserDeactivated
+
+from pymongo import ReturnDocument
+
+# Function to remove a user from the database based on their chat_id
+async def del_user(chat_id):
+    try:
+        # Delete the user from the MongoDB collection
+        result = collection.find_one_and_delete({"_id": chat_id}, return_document=ReturnDocument.AFTER)
+        
+        if result:
+            print(f"User {chat_id} removed from the database.")
+        else:
+            print(f"User {chat_id} not found in the database.")
+    except Exception as e:
+        print(f"Error deleting user {chat_id}: {e}")
+
+
+from pyrogram import Client, filters
+from pyrogram.types import Message
+import asyncio
+
+@app.on_message(filters.private & filters.command('broadcast') & filters.user(ADMINS))
+async def send_text(client: Client, message: Message):
+    if message.reply_to_message:
+        # Inform the admin that the broadcast will be sent to all users
+        await message.reply(
+            "Broadcast will be sent to ALL users.\n\n"
+            "Broadcast message is being processed."
+        )
+        
+        # Get the broadcast message
+        broadcast_msg = message.reply_to_message
+        
+        # Get the list of all users (from the database)
+        query = await full_userbase()  # This function fetches all user IDs from the database
+        
+        # Perform broadcast
+        total = len(query)
+        successful = 0
+        blocked = 0
+        deleted = 0
+        unsuccessful = 0
+        
+        pls_wait = await message.reply("<i>ʙʀᴏᴀᴅᴄᴀꜱᴛ ᴘʀᴏᴄᴇꜱꜜɪɴɢ....</i>")
+        
+        for index, chat_id in enumerate(query):
+            try:
+                # Send message
+                await broadcast_msg.copy(chat_id=chat_id)
+                successful += 1
+            except FloodWait as e:
+                # Correctly use e.value instead of e.time
+                await asyncio.sleep(e.value)  # Correct way to access the wait time
+                try:
+                    await broadcast_msg.copy(chat_id=chat_id)
+                    successful += 1
+                except Exception as inner_e:
+                    print(f"Failed to send message to {chat_id}: {inner_e}")  # Log the specific error
+                    unsuccessful += 1
+            except UserIsBlocked:
+                await del_user(chat_id)
+                blocked += 1
+            except InputUserDeactivated:
+                await del_user(chat_id)
+                deleted += 1
+            except Exception as e:
+                print(f"Unexpected error for {chat_id}: {e}")  # Log unexpected errors
+                unsuccessful += 1
+            
+            # Update loading bar
+            progress = (index + 1) / total
+            bar_length = 20  # Length of the loading bar
+            filled_length = int(bar_length * progress)
+            bar = '█' * filled_length + '-' * (bar_length - filled_length)
+            await pls_wait.edit(f"<b>Broadcast Progress:</b>\n{bar} {progress:.1%}")
+
+        # Generate status message
+        status = f"""<b><u>ʙʀᴏᴀᴅᴄᴀꜱᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ</u>
+
+Total Users: <code>{total}</code>
+Successful: <code>{successful}</code>
+Blocked Users: <code>{blocked}</code>
+Deleted Accounts: <code>{deleted}</code>
+Unsuccessful: <code>{unsuccessful}</code></b>"""
+        
+        await pls_wait.edit(status)
+    
+    else:
+        msg = await message.reply(REPLY_ERROR)
+        await asyncio.sleep(8)
+        await msg.delete()
+    
+    return
+
+
+REPLY_ERROR = """Usᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴀs ᴀ ʀᴇᴘʟʏ ᴛᴏ ᴀɴʏ ᴛᴇʟᴇɢʀᴀᴍ ᴍᴇssᴀɢᴇ ᴡɪᴛʜᴏᴜᴛ ᴀɴʏ sᴘᴀᴄᴇs."""
+
 import time
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -938,7 +1045,7 @@ async def find_between(text, start, end):
 
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    api_url = f"https://terabox.pikaapis.workers.dev/?url={encoded_url}"
+    api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
 
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
@@ -1043,12 +1150,23 @@ async def format_message(link):
     return f"🔗 <b>{title}</b>\n📝 Size: {size}\n[Download Here]({dlink})"
 
 
+import re
+def extract_links(text):
+    pattern = r'(https?://[^\s]+)'
+    return re.findall(pattern, text)
+
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
     if message.text.startswith('/'):
         return
 
     if not message.from_user:
+        return
+    
+    links = extract_links(message.text.lower())
+
+    valid_links = [link for link in links if any(domain in link for domain in VALID_DOMAINS)]
+    if not valid_links:
         return
 
     user_id = message.from_user.id
@@ -1177,7 +1295,7 @@ async def handle_message(client: Client, message: Message):
             break
 
     if not url:
-        await message.reply_text("Please provide a valid Terabox link.")
+        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ Tᴇʀᴀʙᴏx ʟɪɴᴋ.")
         return
     
     start_time = time.time()  # Start time to measure how long the process takes
@@ -1222,16 +1340,16 @@ async def handle_message(client: Client, message: Message):
 
     download = aria2.add_uris([direct_link], options={
         'continue': 'true',
-        'split': '16',  # More parallel download
+        'split': '32',  # More parallel download
     })
 
     sticker_msg = await message.reply_sticker("CAACAgIAAxkBAAEBOPtoBJnc2s0i96Z6aFCJW-ZVqFPeyAACFh4AAuzxOUkNYHq7o3u0ODYE")
     await asyncio.sleep(1)
     await sticker_msg.delete()
     status_message = await message.reply_text(
-        "🚀 Hᴀɴɢ ᴛɪɢʜᴛ! Yᴏᴜʀ ᴍᴇᴅɪᴀ ɪs ᴏɴ ɪᴛs ᴡᴀʏ... 😈",
+        f"<b>Pʀᴏᴄᴇssɪɴɢ Yᴏᴜʀ Lɪɴᴋ Pʟᴇᴀsᴇ Wᴀɪᴛ...</b>",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Sᴛᴏᴘ ⏹️", callback_data=f"cancel_{download.gid}")] 
+            [InlineKeyboardButton("Sᴛᴏᴘ 🚫", callback_data=f"cancel_{download.gid}")] 
         ])
     )
 
@@ -1251,7 +1369,7 @@ async def handle_message(client: Client, message: Message):
         if app.active_downloads.get(download.gid, {}).get('cancelled', False):
             try:
                 download.remove(force=True, files=True)
-                await status_message.edit_text("✅ Dᴏᴡɴʟᴏᴀᴅ ᴄᴀɴᴄᴇʟʟᴇᴅ. Sᴇᴇ ʏᴀ ɴᴇxᴛ ᴛɪᴍᴇ! 🚫")
+                await status_message.edit_text("✅ Dᴏᴡɴʟᴏᴀᴅ ᴄᴀɴᴄᴇʟʟᴇᴅ...")
             except Exception as e:
                 logger.error(f"Error cancelling download: {e}")
                 await status_message.edit_text("❌ Failed to cancel download.")
@@ -1265,11 +1383,36 @@ async def handle_message(client: Client, message: Message):
 
         elapsed_time = datetime.now() - start_time
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
+        total_bars = 10
+        filled_bars = int(progress // (100 / total_bars))
+        empty_bars = total_bars - filled_bars
+        progress_bar = "➤" * filled_bars + "➖" * empty_bars
 
-        status_text = (
-            f"📦 <b>{download.name}</b>\n"
-            f"📊 {progress:.2f}% | ⚡ {format_size(download.download_speed)}/s | ETA: {download.eta}\n"
-            f"🕒 {elapsed_minutes}m {elapsed_seconds}s | 📝 {format_size(download.total_length)}\n"
+        eta = download.eta if download.eta else "Calculating..."
+
+        if progress == 100:
+            current_status = "Cᴏᴍᴘʟᴇᴛᴇᴅ ✅"
+        elif download.download_speed == 0:
+            current_status = "Wᴀɪᴛɪɴɢ... ⏳"
+        else:
+            current_status = "Dᴏᴡɴʟᴏᴀᴅɪɴɢ... ⏬"
+
+        speed = download.download_speed
+        if speed > 5_000_000:  # >5MB/s
+            speed_icon = "⚡"
+        elif speed > 500_000:  # >500KB/s
+            speed_icon = "🚀"
+        else:
+            speed_icon = "🐢"
+
+        status_text = (        
+            f"╭─➤ <b>Fɪʟᴇ:</b> {download.name}\n"
+            f"├─➤ [{progress_bar}] {progress:.2f}%\n"
+            f"├─➤ <b>Pʀᴏᴄᴇssᴇᴅ:</b> {format_size(download.completed_length)} / {format_size(download.total_length)}\n"
+            f"├─➤ <b>Sᴛᴀᴛᴜs: {current_status}</b>\n"
+            f"├─➤ <b>Sᴘᴇᴇᴅ:</b> {speed_icon} {format_size(speed)}/s\n"
+            f"├─➤ <b>Eᴛᴀ:</b> {eta}\n"
+            f"╰─➤ <b>Uѕᴇʀ::</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
             )
         while True:
             try:
@@ -1278,7 +1421,7 @@ async def handle_message(client: Client, message: Message):
                     status_message,
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Sᴛᴏᴘ ⏱️", callback_data=f"cancel_{download.gid}"),
+                        [InlineKeyboardButton("Cᴀɴᴄᴇʟ 🚫", callback_data=f"cancel_{download.gid}"),
                          InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=direct_link)],
                         [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXlinks")]
                     ])
@@ -1304,7 +1447,7 @@ async def handle_message(client: Client, message: Message):
     )
 
     last_update_time = time.time()
-    UPDATE_INTERVAL = 5
+    UPDATE_INTERVAL = 3
 
     async def update_status(message, text):
         nonlocal last_update_time
@@ -1327,13 +1470,13 @@ async def handle_message(client: Client, message: Message):
 
         status_text = (
             f"⚡️ <b>Uᴘʟᴏᴀᴅ Sᴛᴀᴛᴜs</b> ⚡️\n\n"
-            f"📁 <b>Fɪʟᴇ:</b> <code>{download.name}</code>\n"
-            f"📊 <b>Pʀᴏɢʀᴇss:</b> [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"📦 <b>Sɪᴢᴇ:</b> {format_size(current)} / {format_size(total)}\n"
-            f"🚀 <b>Sᴛᴀᴛᴜs:</b> Uᴘʟᴏᴀᴅɪɴɢ ᴛᴏ Tᴇʟᴇɢʀᴀᴍ...\n"
-            f"⚙️ <b>Sᴘᴇᴇᴅ:</b> {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
-            f"⏳ <b>ᴛɪᴍᴇ:</b> {elapsed_minutes}m {elapsed_seconds}s ᴇʟᴀᴘsᴇᴅ\n"
-            f"🙋 <b>Uꜱᴇʀ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
+            f"╭─➤ <b>Fɪʟᴇ:</b> <code>{download.name}</code>\n"
+            f"├─➤ <b>Pʀᴏɢʀᴇss:</b> [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
+            f"├─➤ <b>Pʀᴏɢʀᴇssᴇᴅ:</b> {format_size(current)} / {format_size(total)}\n"
+            f"├─➤ <b>Sᴛᴀᴛᴜs:</b> Uᴘʟᴏᴀᴅɪɴɢ ᴛᴏ Tᴇʟᴇɢʀᴀᴍ...\n"
+            f"├─➤ <b>Sᴘᴇᴇᴅ:</b> {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
+            f"├─➤<b>ᴛɪᴍᴇ:</b> {elapsed_minutes}m {elapsed_seconds}s ᴇʟᴀᴘsᴇᴅ\n"
+            f"╰─➤ <b>Uꜱᴇʀ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
         )
         await update_status(status_message, status_text)
 
@@ -1397,15 +1540,12 @@ async def handle_message(client: Client, message: Message):
             logger.error(f"Split error: {e}")
             raise
 
-
-
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         part_caption = caption
 
         upload_as_video = True
         duration, width, height = 0, 0, 0
-        thumb = None
 
         if str(file_path).upper().endswith(("M4V", "MP4", "MOV", "FLV", "WMV", "3GP", "MPEG", "WEBM", "MKV")):
    
@@ -1421,44 +1561,11 @@ async def handle_message(client: Client, message: Message):
                         duration = int(int(meta.get("duration_ts", 0)) / 1000)
             except Exception as e:
                 logger.error(f"Error getting video metadata: {e}")
-
-            try:
-                duration, width, height = get_video_metadata(file_path)
-                if metadata.has("duration"):
-                    duration = metadata.get("duration").seconds
-            except Exception as e:
-                logger.error(f"Error getting video metadata: {e}")
-
-            if duration:
-                thumb = await screenshot(file_path, duration)
-            else:
                 upload_as_video = False
 
-        # async def get_video_dimensions(video_path):
-        #     try:
-                
-        #         cmd = [
-        #             'ffprobe', '-v', 'error',
-        #             '-select_streams', 'v:0', 
-        #             '-show_entries', 'stream=width,height',
-        #             '-of', 'csv=p=0', 
-        #             video_path
-        #         ] 
-        #         process = await asyncio.create_subprocess_exec(
-        #             *cmd,
-        #             stdout=asyncio.subprocess.PIPE,
-        #             stderr=asyncio.subprocess.PIPE
-        #         )
-        #         stdout, stderr = await process.communicate()
-        #         if stdout:
-        #             dimensions = stdout.decode().strip().split(',')
-        #             if len(dimensions) == 2:
-        #                 return int(dimensions[0]), int(dimensions[1])
-        #         return None, None
-        #     except Exception as e:
-        #             logger.error(f"Error getting video dimensions: {e}")
-        #             return None, None
-        
+        else:
+            upload_as_video = False
+    
         if file_size > SPLIT_SIZE:
             await update_status(
                 status_message,
@@ -1482,8 +1589,6 @@ async def handle_message(client: Client, message: Message):
                     )
 
                     width, height = await get_video_info(part)
-                    thumb_path = f"{part}.jpg"
-                    thumb = await generate_thumbnail(part, thumb_path)
           
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
@@ -1496,7 +1601,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
-                            thumb=thumb,
                             disable_notification=True,
                             request_timeout=3600
                         )
@@ -1512,7 +1616,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
-                            thumb=thumb,
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
@@ -1521,7 +1624,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
-                            thumb=thumb,
                         )
                     os.remove(part)
             finally:
@@ -1547,7 +1649,6 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
-                        thumb=thumb,
                     )
                     try:
                         await app.copy_message(
@@ -1564,7 +1665,6 @@ async def handle_message(client: Client, message: Message):
                                 width=width,
                                 height=height,
                                 duration=duration,
-                                thumb=thumb,
                             )
                         except Exception as e2:
                             logger.error(f"Error sending video: {e2}")
@@ -1575,7 +1675,6 @@ async def handle_message(client: Client, message: Message):
                                 width=width,
                                 height=height,
                                 duration=duration,
-                                thumb=thumb,
                             )
                 except Exception as e:
                     logger.error(f"Error sending video: {e}")
@@ -1587,7 +1686,6 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
-                        thumb=thumb,
                     )
             else:
                 try:
@@ -1599,7 +1697,6 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
-                        thumb=thumb,
                     )
                     try:
                         await client.send_video(
@@ -1609,7 +1706,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
-                            thumb=thumb,
                         )
                     except Exception as e:
                         logger.error(f"Failed to send video using file_id: {e}")
@@ -1620,7 +1716,6 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
-                            thumb=thumb,
                         )
                 except Exception as e:
                     logger.error(f"Failed to send video: {e}")
@@ -1632,7 +1727,6 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
-                        thumb=thumb,
                     )
 
         if os.path.exists(file_path):
@@ -1776,12 +1870,12 @@ async def main():
     try:
         await app.send_message(
             OWNER_ID,
-            f"✅ **Bot Started Successfully!**\n\n"
-            f"🕒 **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"🖥️ **Server:** {platform.node()}\n"
-            f"💾 **User Session:** {'✅ Active' if USER_SESSION_STRING else '❌ Not configured'}\n"
-            f"🔄 **Max Upload Size:** {format_size(SPLIT_SIZE)}\n\n"
-            f"Bot is now ready to process Terabox links!"
+            f"✅ **Bᴏᴛ Sᴛᴀʀᴛᴇᴅ Sᴜᴄᴄᴇssfᴜʟʏ!**\n\n"
+            f"🕒 **Tɪᴍᴇ:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🖥️ **Sᴇʀᴠᴇʀ:** {platform.node()}\n"
+            f"💾 **Uѕᴇʀ Sᴇssɪᴏɴ:** {'✅ Aᴄᴛɪᴠᴇ' if USER_SESSION_STRING else '❌ Nᴏᴛ cᴏɴғɪɢᴜʀᴇᴅ'}\n"
+            f"🔄 **Mᴀx Uᴘʟᴏᴀᴅ Sɪᴢᴇ:** {format_size(SPLIT_SIZE)}\n\n"
+            f"Bᴏᴛ ɪs nᴏᴡ ʀᴇᴀᴅʏ tᴏ prᴏᴄᴇss Tᴇʀᴀbᴏx lɪɴᴋs!"
         )
         logger.info(f"Startup notification sent to owner: {OWNER_ID}")
     except Exception as e:
@@ -1793,3 +1887,5 @@ async def main():
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
+
+
