@@ -938,7 +938,7 @@ async def find_between(text, start, end):
 
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    api_url = f"https://terabox.pikaapis.workers.dev/?url={encoded_url}"
+    api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
 
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
