@@ -76,7 +76,6 @@ logging.getLogger("pyrogram.dispatcher").setLevel(logging.ERROR)
 
 # from aria2p import Aria2API, Aria2Client
 
-# Connect to the local Aria2 instance
 aria2 = Aria2API(
     Aria2Client(
         host="http://localhost",
@@ -84,44 +83,50 @@ aria2 = Aria2API(
         secret=""
     )
 )
+
+# SUPER BOOSTED SETTINGS
 options = {
-    # Connection settings
-    "max-connection-per-server": "16",      # Increase from 8 to 16 for more parallel connections
-    "split": "64",                          # Increase from 16 to 32 for more segments
-    "min-split-size": "1M",                 # Keep small split size for better parallelism
-    "piece-length": "1M",                   # Smaller pieces for better resumability
-    "max-concurrent-downloads": "3",        # Reduce to 3 to avoid overwhelming the network
-    
-    # Retry settings
-    "max-tries": "10",                      # Reduce from 50 to 10 (still plenty)
-    "retry-wait": "2",                      # Slightly faster retry
-    "connect-timeout": "10",                # Faster timeout for connection attempts
-    "timeout": "10",                        # Faster timeout for slow responses
-    
-    # Performance settings
-    "disk-cache": "64M",                    # Add disk cache to reduce disk I/O
-    "file-allocation": "falloc",            # Use 'falloc' if your filesystem supports it (faster than 'none')
-    "async-dns": "true",                    # Enable async DNS for faster lookups
-    "enable-http-keep-alive": "true",       # Keep connections alive
-    "enable-http-pipelining": "true",       # Enable HTTP pipelining
-    
-    # Continue and overwrite settings
-    "continue": "true",                     # Keep resume support
-    "allow-overwrite": "true",              # Keep force overwrite
-    
-    # Download limits
-    "max-download-limit": "0",              # No limit
-    "min-download-limit": "1M",             # Keep minimum speed
-    
-    # Storage location
-    "dir": "/tmp/aria2_downloads",          # Keep same location
-    
-    # BitTorrent settings (not used for Terabox but kept for completeness)
-    "bt-max-peers": "0",                    # Keep unlimited peers
-    "bt-request-peer-speed-limit": "10M",   # Keep same limit
-    "seed-ratio": "0.0",                    # Keep no seeding
+    # Connection Boost
+    "max-connection-per-server": "16",     # Max out connections per server
+    "split": "128",                        # Massive split to download more parts at once
+    "min-split-size": "1M",               # Tiny splits to allow parallel downloads
+    "piece-length": "1M",                 # Smaller piece size for better downloading
+
+    # Concurrent Downloads
+    "max-concurrent-downloads": "5",        # 5 downloads at the same time
+
+    # Retry Settings
+    "max-tries": "20",                      # More retries
+    "retry-wait": "2",                      # Fast retry
+    "connect-timeout": "5",                  # Faster timeout
+    "timeout": "10",                        # Standard timeout
+
+    # Performance
+    "disk-cache": "128M",                   # Big cache for less disk writing pressure
+    "file-allocation": "none",              # no pre-allocating for max speed
+    "async-dns": "true",                    
+    "enable-http-keep-alive": "true",
+    "enable-http-pipelining": "true",
+
+    # Continue/Overwrite
+    "continue": "true",
+    "allow-overwrite": "true",
+
+    # No Speed Limits
+    "max-download-limit": "0",               # Unlimited
+    "min-download-limit": "0",               # Unlimited
+
+    # Download location
+    "dir": "/tmp/aria2_downloads",
+
+    # Optional BT Settings (even if not used)
+    "bt-max-peers": "0",
+    "bt-request-peer-speed-limit": "10M",
+    "seed-ratio": "0.0",
 }
 
+# Apply options
+aria2.set_global_options(options)
 
 
 
@@ -1057,13 +1062,13 @@ async def fetch_download_link_async(url):
                 response_data = await response.json()
 
             link = response_data.get("link")
-            direct_link = response_data.get("direct_link")
+            dlink = response_data.get("dlink")
 
             # Test direct_link by checking if it returns error 31362
-            if direct_link:
-                async with my_session.head(direct_link) as check_response:
+            if dlink:
+                async with my_session.head(dlink) as check_response:
                     if check_response.status == 200:
-                        return direct_link
+                        return dlink
                     else:
                         print("Direct link fallback failed, using regular link if present.")
             
@@ -1298,6 +1303,14 @@ async def handle_message(client: Client, message: Message):
         await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ Tᴇʀᴀʙᴏx ʟɪɴᴋ.")
         return
     
+
+    sticker_msg = await message.reply_sticker("CAACAgIAAxkBAAEBOPtoBJnc2s0i96Z6aFCJW-ZVqFPeyAACFh4AAuzxOUkNYHq7o3u0ODYE")
+    await asyncio.sleep(1)
+    await sticker_msg.delete()
+    status_message = await message.reply_text(
+        f"<b>Pʀᴏᴄᴇssɪɴɢ Yᴏᴜʀ Lɪɴᴋ Pʟᴇᴀsᴇ Wᴀɪᴛ...</b>",
+    )
+    
     start_time = time.time()  # Start time to measure how long the process takes
     link_data = await fetch_download_link_async(message.text)
 
@@ -1338,20 +1351,15 @@ async def handle_message(client: Client, message: Message):
 
     # encoded_url = urllib.parse.quote(final_url)
 
-    download = aria2.add_uris([direct_link], options={
-        'continue': 'true',
-        'split': '32',  # More parallel download
-    })
-
-    sticker_msg = await message.reply_sticker("CAACAgIAAxkBAAEBOPtoBJnc2s0i96Z6aFCJW-ZVqFPeyAACFh4AAuzxOUkNYHq7o3u0ODYE")
-    await asyncio.sleep(1)
-    await sticker_msg.delete()
-    status_message = await message.reply_text(
-        f"<b>Pʀᴏᴄᴇssɪɴɢ Yᴏᴜʀ Lɪɴᴋ Pʟᴇᴀsᴇ Wᴀɪᴛ...</b>",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Sᴛᴏᴘ 🚫", callback_data=f"cancel_{download.gid}")] 
-        ])
+    download = aria2.add_uris(
+        [direct_link],
+        options={
+            'continue': 'true',
+            'split': '128',  
+            'max-connection-per-server': '32',
+        }
     )
+
 
     start_time = datetime.now()
 
