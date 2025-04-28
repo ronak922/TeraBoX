@@ -98,7 +98,6 @@ aria2 = Aria2API(
     )
 )
 
-# SUPER BOOSTED SETTINGS
 options = {
     # Connection Boost
     "max-connection-per-server": "16",     # Increased from 16 to 32
@@ -1407,9 +1406,6 @@ async def handle_message(client: Client, message: Message):
             'continue': 'true',
             'split': '128',  
             'max-connection-per-server': '16',
-            'min-split-size': '1M',  # Added this line
-            'optimize-concurrent-downloads': 'true', # Added this line
-            'disk-cache': '256M', # Added this line
         }
     )
 
@@ -1665,7 +1661,7 @@ async def handle_message(client: Client, message: Message):
                             height=height,
                             duration=duration,
                             disable_notification=True,
-                            request_timeout=7200
+                            request_timeout=3600
                         )
                         await app.copy_message(
                             message.chat.id, DUMP_CHAT_ID, sent.id
