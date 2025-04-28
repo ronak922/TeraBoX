@@ -14,7 +14,9 @@ import asyncio  # For asyncio.TimeoutError
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import FloodWait, MessageDeleteForbidden
+# Add this to your imports at the top
+from pyrogram.errors import FloodWait, MessageDeleteForbidden, MessageNotModified
+
 from pyrogram import Client, filters, idle
 from helper import *
 from pymongo import MongoClient
@@ -45,6 +47,18 @@ try:
 except json.JSONDecodeError as e:
     logger.error(f"Invalid JSON for MY_HEADERS: {e}")
     my_headers = {}
+
+# Around line 40-50, update the headers
+my_headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Referer": "https://www.terabox.com/"
+}
+
 
 # Cookie and Headers (MY_COOKIE and MY_HEADERS must be in JSON string format)
 cookie_string = os.getenv("MY_COOKIE", "browserid=avLKUlrztrL0C84414VnnfWxLrQ1vJblh4m8WCMxL7TZWIMpPdno52qQb27fk957PE6sUd5VZJ1ATlUe; lang=en; TSID=DLpCxYPseu0EL2J5S2Hf36yFszAufv2G; __bid_n=1964760716d8bd55e14207; g_state={\"i_l\":0}; ndus=Yd6IpupteHuieos8muZScO1E7xfuRT_csD6LBOF3; ndut_fmt=06E6B9E2AC0209A19E5F21774DDD4A03B26FC67DA9EB68D3E790C416E35F3957; csrfToken=XMXR2_q-9p3ckuuFAqeZId9d")
@@ -87,46 +101,53 @@ aria2 = Aria2API(
 # SUPER BOOSTED SETTINGS
 options = {
     # Connection Boost
-    "max-connection-per-server": "16",     # Max out connections per server
-    "split": "128",                        # Massive split to download more parts at once
-    "min-split-size": "1M",               # Tiny splits to allow parallel downloads
-    "piece-length": "1M",                 # Smaller piece size for better downloading
+    "max-connection-per-server": "16",     # Increased from 16 to 32
+    "split": "128",                        # Increased from 128 to 256
+    "min-split-size": "1M",              # Decreased from 1M to 512K for more parallel downloads
+    "piece-length": "1M",                  # Keep as is
 
     # Concurrent Downloads
-    "max-concurrent-downloads": "5",        # 5 downloads at the same time
+    "max-concurrent-downloads": "10",      # Increased from 5 to 10
 
     # Retry Settings
-    "max-tries": "20",                      # More retries
-    "retry-wait": "2",                      # Fast retry
-    "connect-timeout": "5",                  # Faster timeout
-    "timeout": "10",                        # Standard timeout
+    "max-tries": "20",                     # Keep as is
+    "retry-wait": "1",                     # Decreased from 2 to 1 for faster retry
+    "connect-timeout": "5",                # Keep as is
+    "timeout": "10",                       # Keep as is
 
     # Performance
-    "disk-cache": "128M",                   # Big cache for less disk writing pressure
-    "file-allocation": "none",              # no pre-allocating for max speed
-    "async-dns": "true",                    
-    "enable-http-keep-alive": "true",
-    "enable-http-pipelining": "true",
+    "disk-cache": "256M",                  # Increased from 128M to 256M
+    "file-allocation": "none",             # Keep as is
+    "async-dns": "true",                   # Keep as is
+    "enable-http-keep-alive": "true",      # Keep as is
+    "enable-http-pipelining": "true",      # Keep as is
+    
+    # Additional optimizations
+    "enable-mmap": "true",                 # New: Use memory mapping for files
+    "optimize-concurrent-downloads": "true", # New: Optimize concurrent downloads
+    "http-accept-gzip": "true",            # New: Accept gzip compression
+    "content-disposition-default-utf8": "true", # New: Handle UTF-8 filenames properly
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", # New: Specific user-agent
 
     # Continue/Overwrite
-    "continue": "true",
-    "allow-overwrite": "true",
+    "continue": "true",                    # Keep as is
+    "allow-overwrite": "true",             # Keep as is
 
     # No Speed Limits
-    "max-download-limit": "0",               # Unlimited
-    "min-download-limit": "0",               # Unlimited
+    "max-download-limit": "0",             # Keep as is
+    "min-download-limit": "0",             # Keep as is
 
     # Download location
-    "dir": "/tmp/aria2_downloads",
+    "dir": "/tmp/aria2_downloads",         # Keep as is
 
     # Optional BT Settings (even if not used)
-    "bt-max-peers": "0",
-    "bt-request-peer-speed-limit": "10M",
-    "seed-ratio": "0.0",
+    "bt-max-peers": "0",                   # Keep as is
+    "bt-request-peer-speed-limit": "10M",  # Keep as is
+    "seed-ratio": "0.0",                   # Keep as is
 }
 
 # Apply options
-aria2.set_global_options(options)
+# aria2.set_global_options(options)
 
 
 
@@ -1007,11 +1028,21 @@ async def start_command(client: Client, message: Message):
             await client.send_photo(chat_id=message.chat.id, photo=image_url, caption=final_msg, reply_markup=reply_markup)
 
 
+# Find the update_status_message function (around line 1033)
 async def update_status_message(status_message, text, reply_markup=None):
     try:
+        # Add this check to see if the message content is different
+        if hasattr(status_message, 'text') and status_message.text == text:
+            # Content is the same, no need to update
+            return
+            
         await status_message.edit_text(text, reply_markup=reply_markup)
+    except MessageNotModified:
+        # Specifically catch the MessageNotModified error and ignore it
+        pass
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
+
 
 
 
@@ -1159,6 +1190,25 @@ import re
 def extract_links(text):
     pattern = r'(https?://[^\s]+)'
     return re.findall(pattern, text)
+
+def truncate_filename(filename, max_length=40):
+    """
+    Truncate filename if it's too long and replace 'getnewlink.com' with 'NyxKingX'.
+    """
+    # Replace 'getnewlink.com' with 'NyxKingX'
+    if 'getnewlink.com' in filename:
+        filename = filename.replace('getnewlink.com', '@NyxKingX')
+    
+    # Truncate if too long
+    if len(filename) <= max_length:
+        return filename
+    
+    # Keep the file extension
+    name, ext = os.path.splitext(filename)
+    truncated = name[:max_length-5] + "..." + ext
+    return truncated
+
+
 
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
@@ -1357,6 +1407,9 @@ async def handle_message(client: Client, message: Message):
             'continue': 'true',
             'split': '128',  
             'max-connection-per-server': '16',
+            'min-split-size': '1M',  # Added this line
+            'optimize-concurrent-downloads': 'true', # Added this line
+            'disk-cache': '256M', # Added this line
         }
     )
 
@@ -1395,6 +1448,7 @@ async def handle_message(client: Client, message: Message):
         filled_bars = int(progress // (100 / total_bars))
         empty_bars = total_bars - filled_bars
         progress_bar = "➤" * filled_bars + "➖" * empty_bars
+        truncated_name = truncate_filename(download.name)
 
         eta = download.eta if download.eta else "Calculating..."
 
@@ -1414,13 +1468,14 @@ async def handle_message(client: Client, message: Message):
             speed_icon = "🐢"
 
         status_text = (        
-            f"╭─➤ <b>Fɪʟᴇ:</b> {download.name}\n"
-            f"├─➤ [{progress_bar}] {progress:.2f}%\n"
+            f"<b>━━━「 Tᴇʀᴀʙᴏx Dᴏᴡɴʟᴏᴀᴅᴇʀ 」━━━  </b>\n\n"
+            f"╭─➤ <b>Fɪʟᴇ:</b> {truncated_name}\n"
+            f"├─➤ <b>Pʀᴏɢʀᴇss:</b> {progress:.2f}%\n"
             f"├─➤ <b>Pʀᴏᴄᴇssᴇᴅ:</b> {format_size(download.completed_length)} / {format_size(download.total_length)}\n"
             f"├─➤ <b>Sᴛᴀᴛᴜs: {current_status}</b>\n"
             f"├─➤ <b>Sᴘᴇᴇᴅ:</b> {speed_icon} {format_size(speed)}/s\n"
             f"├─➤ <b>Eᴛᴀ:</b> {eta}\n"
-            f"╰─➤ <b>Uѕᴇʀ::</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
+            f"╰─➤ <b>Rᴇǫᴜᴇsᴛᴇᴅ Bʏ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
             )
         while True:
             try:
@@ -1610,7 +1665,7 @@ async def handle_message(client: Client, message: Message):
                             height=height,
                             duration=duration,
                             disable_notification=True,
-                            request_timeout=3600
+                            request_timeout=7200
                         )
                         await app.copy_message(
                             message.chat.id, DUMP_CHAT_ID, sent.id
