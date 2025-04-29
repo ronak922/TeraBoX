@@ -1397,8 +1397,8 @@ async def handle_message(client: Client, message: Message):
         [direct_link],
         options={
             'continue': 'true',
-            'split': '256',  
-            'max-connection-per-server': '32',
+            # 'split': '128',  
+            # 'max-connection-per-server': '16',
         }
     )
 
