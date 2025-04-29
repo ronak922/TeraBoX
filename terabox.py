@@ -100,57 +100,50 @@ aria2 = Aria2API(
 
 options = {
     # Connection Boost
-    "max-connection-per-server": "16",     # Increased from 16 to 32
-    "split": "128",                        # Increased from 128 to 256
-    "min-split-size": "1M",              # Decreased from 1M to 512K for more parallel downloads
-    "piece-length": "1M",                  # Keep as is
+    "max-connection-per-server": "32",     # Increased from 16 to 32 (More connections per server for faster speeds)
+    "split": "256",                        # Increased from 128 to 256 (More parts per file for faster downloads)
+    "min-split-size": "512K",              # Reduced from 1M to 512K (Smaller chunks allow more parallel downloads)
+    "piece-length": "1M",                  # Keep as is (Large enough for efficient download)
 
     # Concurrent Downloads
-    "max-concurrent-downloads": "10",      # Increased from 5 to 10
-
+    "max-concurrent-downloads": "20",      # Increased from 10 to 20 (Allows more simultaneous downloads)
+    
     # Retry Settings
     "max-tries": "20",                     # Keep as is
-    "retry-wait": "1",                     # Decreased from 2 to 1 for faster retry
+    "retry-wait": "1",                     # Decreased from 2 to 1 (Faster retry if download fails)
     "connect-timeout": "5",                # Keep as is
     "timeout": "10",                       # Keep as is
 
     # Performance
-    "disk-cache": "256M",                  # Increased from 128M to 256M
-    "file-allocation": "none",             # Keep as is
-    "async-dns": "true",                   # Keep as is
-    "enable-http-keep-alive": "true",      # Keep as is
-    "enable-http-pipelining": "true",      # Keep as is
+    "disk-cache": "512M",                  # Increased from 256M to 512M (More cache for faster disk access)
+    "file-allocation": "none",             # Keep as is (No pre-allocation of file space)
+    "async-dns": "true",                   # Keep as is (For non-blocking DNS resolution)
+    "enable-http-keep-alive": "true",      # Keep as is (Improves performance on HTTP connections)
+    "enable-http-pipelining": "true",      # Keep as is (Improves performance with HTTP requests)
     
     # Additional optimizations
-    "enable-mmap": "true",                 # New: Use memory mapping for files
-    "optimize-concurrent-downloads": "true", # New: Optimize concurrent downloads
-    "http-accept-gzip": "true",            # New: Accept gzip compression
-    "content-disposition-default-utf8": "true", # New: Handle UTF-8 filenames properly
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", # New: Specific user-agent
+    "enable-mmap": "true",                 # Use memory-mapped files for faster access
+    "optimize-concurrent-downloads": "true", # Enables better resource handling with multiple downloads
+    "http-accept-gzip": "true",            # Accepts compressed HTTP responses (faster transfers)
+    "content-disposition-default-utf8": "true", # Handle filenames properly in UTF-8 encoding
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", # Standard browser user-agent
 
     # Continue/Overwrite
-    "continue": "true",                    # Keep as is
-    "allow-overwrite": "true",             # Keep as is
+    "continue": "true",                    # Continue partial downloads if the file is already partially downloaded
+    "allow-overwrite": "true",             # Allow overwriting files if needed
 
     # No Speed Limits
-    "max-download-limit": "0",             # Keep as is
-    "min-download-limit": "0",             # Keep as is
+    "max-download-limit": "0",             # No download limit
+    "min-download-limit": "0",             # No minimum download limit
 
     # Download location
-    "dir": "/tmp/aria2_downloads",         # Keep as is
+    "dir": "/tmp/aria2_downloads",         # Downloads location
 
     # Optional BT Settings (even if not used)
     "bt-max-peers": "0",                   # Keep as is
     "bt-request-peer-speed-limit": "10M",  # Keep as is
     "seed-ratio": "0.0",                   # Keep as is
 }
-
-# Apply options
-# aria2.set_global_options(options)
-
-
-
-aria2.set_global_options(options)
 
 API_ID = os.environ.get('TELEGRAM_API', '')
 if len(API_ID) == 0:
@@ -1404,8 +1397,8 @@ async def handle_message(client: Client, message: Message):
         [direct_link],
         options={
             'continue': 'true',
-            'split': '128',  
-            'max-connection-per-server': '16',
+            'split': '256',  
+            'max-connection-per-server': '32',
         }
     )
 
