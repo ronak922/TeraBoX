@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: bash start.sh
+    command: sh start.sh  # Change 'bash' to 'sh'
     restart: on-failure
     ports:
       - "80:80"
