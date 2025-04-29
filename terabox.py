@@ -99,13 +99,28 @@ aria2 = Aria2API(
 )
 
 options = {
-    "max-tries": "50",
-    "retry-wait": "3",
+    # Use single stream per download to avoid range header issues
+    "split": "1",                        # Just 1 chunk, avoids all byte-range issues
+    "max-connection-per-server": "1",   # Single connection only
+
+    # Retry settings
+    "max-tries": "10",
+    "retry-wait": "2",
+    "connect-timeout": "5",
+    "timeout": "10",
+
+    # Other relevant settings
+    "dir": "/tmp/aria2_downloads",
     "continue": "true",
     "allow-overwrite": "true",
-    "min-split-size": "4M",
-    "split": "10"
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+
+    # Keep performance decent
+    "enable-http-keep-alive": "true",
+    "enable-http-pipelining": "true",
+    "http-accept-gzip": "true",
 }
+
 
 API_ID = os.environ.get('TELEGRAM_API', '')
 if len(API_ID) == 0:
@@ -1036,110 +1051,316 @@ async def find_between(text, start, end):
 import aiohttp
 import urllib.parse
 
+import re
+import urllib.parse
+import aiohttp
+
+import aiohttp
+import urllib.parse
+
+
+
+import aiohttp
 async def fetch_download_link_async(url):
-    encoded_url = urllib.parse.quote(url)
-    cheems_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
-    secondary_api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
-
-    async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
-        my_session.headers.update(my_headers)
-
-        # Primary API (CheemsBackup)
-        try:
-            async with my_session.get(cheems_api_url, allow_redirects=True) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                
-                if "application/json" in content_type:
-                    # It's JSON, try to parse
-                    data = await resp.json()
-                    print("Primary API (CheemsBackup) JSON Response:", data)
-                    dlink = data.get("direct_link") or data.get("link")
-                    if dlink:
-                        return dlink
-                elif "video" in content_type or "octet-stream" in content_type:
-                    # It's a direct video or binary file
-                    print("Primary API (CheemsBackup) returned a direct file response.")
-                    return str(resp.url)  # Direct link to file
-                else:
-                    print(f"Primary API returned unknown content type: {content_type}")
-        except Exception as e:
-            print(f"Primary API (CheemsBackup) fallback failed: {e}")
-
-        # Secondary API (terabox-pika)
-        try:
-            async with my_session.get(secondary_api_url) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                print("Secondary API (terabox-pika) Response:", data)
-                
-                dlink = data.get("direct_link")
-                if dlink:
-                    return dlink
-                link = data.get("link")
-                if link:
-                    return link
-        except Exception as e:
-            print(f"Secondary API (terabox-pika) fallback failed: {e}")
-
-        # Final fallback: Manual page scraping
-        try:
-            async with my_session.get(url) as response:
+    """Extract the fastest possible download link from TeraBox using the Hyper RapidAPI service"""
+    try:
+        # First try the RapidAPI service which is more reliable
+        print(f"Attempting to fetch direct link for: {url}")
+        
+        # Use the working RapidAPI Hyper endpoint
+        rapidapi_url = "https://terabox-downloader-hyper.p.rapidapi.com/api"
+        rapidapi_headers = {
+            'x-rapidapi-key': "6a551c8b01msh43705a0921fcf2ap1866d2jsn349f4f0cb152",
+            'x-rapidapi-host': "terabox-downloader-hyper.p.rapidapi.com"
+        }
+        rapidapi_params = {
+            "key": "RapidAPI-1903-fast",
+            "url": url
+        }
+        
+        # Make the async request to RapidAPI
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    rapidapi_url, 
+                    headers=rapidapi_headers, 
+                    params=rapidapi_params,
+                    timeout=30
+                ) as response:
+                    # Check if the request was successful
+                    if response.status == 200:
+                        result = await response.json()
+                        
+                        # Debug: Print the full response for analysis
+                        print(f"RapidAPI response: {result}")
+                        
+                        # Check for error in the response
+                        if "error_code" in result and result["error_code"]:
+                            print(f"RapidAPI returned an error: {result}")
+                            # Continue to try other links in the response
+                        else:
+                            # Check for different possible link fields in order of preference
+                            if "fastlink" in result and result["fastlink"]:
+                                # Try to validate the fastlink before returning it
+                                try:
+                                    # Make a HEAD request to check if the fastlink is valid
+                                    async with session.head(result["fastlink"], timeout=10) as head_resp:
+                                        if head_resp.status == 200:
+                                            print("Successfully validated fastlink from RapidAPI")
+                                            return result["fastlink"]
+                                        else:
+                                            print(f"Fastlink validation failed with status {head_resp.status}, trying alternative link")
+                                except Exception as e:
+                                    print(f"Fastlink validation failed: {e}, trying alternative link")
+                            
+                            # If fastlink is not available or not valid, try the regular link
+                            if "link" in result and result["link"]:
+                                print("Using regular link from RapidAPI")
+                                return result["link"]
+                        
+                        # If we get here, no valid link was found in the RapidAPI response
+                        print(f"RapidAPI returned a response but no valid link was found: {result}")
+                        # Continue to fallback method
+                    else:
+                        print(f"RapidAPI request failed with status code: {response.status}")
+                        response_text = await response.text()
+                        print(f"Response content: {response_text}")
+                        # Continue to fallback method
+            except aiohttp.ClientError as e:
+                print(f"RapidAPI request failed with error: {e}")
+                # Continue to fallback method
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse RapidAPI response: {e}")
+                # Continue to fallback method
+        
+        # Try alternative RapidAPI service as a second option
+        print("Trying alternative RapidAPI service...")
+        alt_rapidapi_url = "https://terabox-downloader-direct-download-link-generator2.p.rapidapi.com/url"
+        alt_rapidapi_headers = {
+            'x-rapidapi-key': "6a551c8b01msh43705a0921fcf2ap1866d2jsn349f4f0cb152",
+            'x-rapidapi-host': "terabox-downloader-direct-download-link-generator2.p.rapidapi.com"
+        }
+        alt_rapidapi_params = {"url": url}
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    alt_rapidapi_url, 
+                    headers=alt_rapidapi_headers, 
+                    params=alt_rapidapi_params,
+                    timeout=30
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        print(f"Alternative RapidAPI response: {result}")
+                        
+                        if "link" in result and result["link"]:
+                            print("Successfully retrieved link from alternative RapidAPI")
+                            return result["link"]
+                        elif "direct_link" in result and result["direct_link"]:
+                            print("Successfully retrieved direct_link from alternative RapidAPI")
+                            return result["direct_link"]
+                    else:
+                        print(f"Alternative RapidAPI request failed with status code: {response.status}")
+            except Exception as e:
+                print(f"Alternative RapidAPI request failed with error: {e}")
+        
+        # Falling back to our original implementation
+        print("Falling back to original TeraBox extraction method...")
+        
+        # Configure session with optimal settings
+        conn = aiohttp.TCPConnector(limit=10, force_close=False, enable_cleanup_closed=True)
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        
+        # Headers that mimic a browser for better compatibility
+        browser_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        async with aiohttp.ClientSession(
+            cookies=my_cookie, 
+            connector=conn,
+            timeout=timeout,
+            headers=browser_headers
+        ) as session:
+            # Step 1: Get the page content and extract necessary parameters
+            async with session.get(url, allow_redirects=True) as response:
                 response.raise_for_status()
-                response_data = await response.text()
-
-            js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-            log_id = await find_between(response_data, 'dp-logid=', '&')
-
-            if not js_token or not log_id:
-                print("Required tokens not found.")
-                return None
-
-            request_url = str(response.url)
-            surl = request_url.split('surl=')[1]
-
-            params = {
-                'app_id': '250528',
-                'web': '1',
-                'channel': 'dubox',
-                'clienttype': '0',
-                'jsToken': js_token,
-                'dplogid': log_id,
-                'page': '1',
-                'num': '20',
-                'order': 'time',
-                'desc': '1',
-                'site_referer': request_url,
-                'shorturl': surl,
-                'root': '1'
-            }
-
-            async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
-                response_data2 = await response2.json()
-                if 'list' not in response_data2:
-                    print("No list found.")
-                    return None
-
-                if response_data2['list'][0]['isdir'] == "1":
-                    params.update({
-                        'dir': response_data2['list'][0]['path'],
-                        'order': 'asc',
-                        'by': 'name',
-                        'dplogid': log_id
-                    })
-                    params.pop('desc')
-                    params.pop('root')
-
-                    async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
-                        response_data3 = await response3.json()
-                        if 'list' not in response_data3:
-                            return None
-                        return response_data3['list']
-
-                return response_data2['list']
-
-        except Exception as e:
-            print(f"Final fallback failed: {e}")
+                page_content = await response.text()
+                final_url = str(response.url)
+            
+            # Step 2: Extract critical parameters from the page
+            # Look for the JSON data in the page that contains file information
+            json_data_match = re.search(r'window\.yunData\s*=\s*({.*?});', page_content, re.DOTALL)
+            if not json_data_match:
+                json_data_match = re.search(r'var\s+context\s*=\s*({.*?});', page_content, re.DOTALL)
+            
+            if json_data_match:
+                try:
+                    # Parse the JSON data
+                    json_str = json_data_match.group(1)
+                    data = json.loads(json_str)
+                    
+                    # Extract file information
+                    if 'file_list' in data:
+                        file_info = data['file_list'][0]
+                        fs_id = file_info.get('fs_id')
+                        server_filename = file_info.get('server_filename')
+                        size = file_info.get('size')
+                    else:
+                        # Alternative structure
+                        fs_id = data.get('fs_id') or data.get('fileId')
+                        server_filename = data.get('server_filename') or data.get('fileName')
+                        size = data.get('size') or data.get('fileSize')
+                    
+                    # Extract other necessary parameters
+                    shareid = data.get('shareid') or data.get('shareId')
+                    uk = data.get('uk') or data.get('userId')
+                    sign = data.get('sign')
+                    timestamp = data.get('timestamp') or int(time.time())
+                    
+                    # If we have the necessary parameters, construct a direct CDN URL
+                    if fs_id and shareid and uk:
+                        # Construct parameters for the direct download
+                        params = {
+                            'fid': fs_id,
+                            'shareid': shareid,
+                            'uk': uk,
+                            'sign': sign or '',
+                            'timestamp': timestamp,
+                            'dstime': int(time.time()),
+                            'rt': 'sh',
+                            'expires': '8h',
+                            'chkv': '0',
+                            'chkbd': '0',
+                            'chkpc': '',
+                            'dp-logid': int(time.time() * 1000),
+                            'dp-callid': '0',
+                            'r': random.randint(100000000, 999999999),
+                            'sh': '1'
+                        }
+                        
+                        # Try multiple CDN domains to find the fastest
+                        cdn_domains = [
+                            "d.terabox.com",
+                            "d.teraboxapp.com",
+                            "d1.freeterabox.com",
+                            "d2.freeterabox.com",
+                            "d8.freeterabox.com"
+                        ]
+                        
+                        for domain in cdn_domains:
+                            cdn_url = f"https://{domain}/file/{fs_id}"
+                            full_url = f"{cdn_url}?" + "&".join([f"{k}={v}" for k, v in params.items() if v is not None])
+                            
+                            try:
+                                # Test if this CDN URL works
+                                async with session.head(full_url, timeout=aiohttp.ClientTimeout(total=5)) as head_resp:
+                                    if head_resp.status == 200:
+                                        print(f"Found working CDN: {domain}")
+                                        return full_url
+                            except Exception as e:
+                                print(f"CDN {domain} test failed: {e}")
+                                continue
+                except Exception as e:
+                    print(f"Error parsing JSON data: {e}")
+            
+            # Step 3: If JSON extraction failed, try to find direct links in the page
+            cdn_link_pattern = r'(https?://d[0-9]?\.(?:terabox|teraboxapp|freeterabox)\.com/file/[^"\'&\s]+)'
+            cdn_links = re.findall(cdn_link_pattern, page_content)
+            if cdn_links:
+                # Return the first CDN link found
+                return urllib.parse.unquote(cdn_links[0])
+            
+            # Step 4: If direct extraction failed, try the API approach
+            # Extract surl for API calls
+            surl = None
+            if 'surl=' in final_url:
+                surl = final_url.split('surl=')[1].split('&')[0]
+            else:
+                surl = await find_between(page_content, '"shorturl":"', '"')
+                if not surl:
+                    surl = await find_between(page_content, '"surl":"', '"')
+            
+            if surl:
+                # Extract other parameters needed for API calls
+                js_token = await find_between(page_content, 'fn%28%22', '%22%29')
+                if not js_token:
+                    js_token = await find_between(page_content, '"sign":"', '"')
+                
+                log_id = await find_between(page_content, 'dp-logid=', '&')
+                if not log_id:
+                    log_id = await find_between(page_content, '"logid":"', '"')
+                
+                # Use the share/list API to get file information
+                list_params = {
+                    'app_id': '250528',
+                    'web': '1',
+                    'channel': 'dubox',
+                    'clienttype': '0',
+                    'jsToken': js_token or '',
+                    'dplogid': log_id or '',
+                    'page': '1',
+                    'num': '100',
+                    'order': 'time',
+                    'desc': '1',
+                    'site_referer': final_url,
+                    'shorturl': surl,
+                    'root': '1'
+                }
+                
+                # Remove any None values
+                list_params = {k: v for k, v in list_params.items() if v is not None}
+                
+                try:
+                    async with session.get('https://www.terabox.com/share/list', params=list_params) as response2:
+                        response_data2 = await response2.json()
+                        
+                        if 'list' in response_data2 and response_data2['list']:
+                            file_list = response_data2['list']
+                            
+                            # If it's a directory, get the contents
+                            if file_list[0].get('isdir') == "1":
+                                dir_params = dict(list_params)
+                                dir_params.update({
+                                    'dir': file_list[0]['path'],
+                                    'order': 'asc',
+                                    'by': 'name'
+                                })
+                                dir_params.pop('desc', None)
+                                dir_params.pop('root', None)
+                                
+                                async with session.get('https://www.terabox.com/share/list', params=dir_params) as response3:
+                                    response_data3 = await response3.json()
+                                    if 'list' in response_data3 and response_data3['list']:
+                                        # Return the direct download link of the first file
+                                        if 'dlink' in response_data3['list'][0]:
+                                            return response_data3['list'][0]['dlink']
+                                        return response_data3['list']
+                            
+                            # Return the direct download link if available
+                            if 'dlink' in file_list[0]:
+                                return file_list[0]['dlink']
+                            return file_list
+                except Exception as e:
+                    print(f"Share/list API failed: {e}")
+            
+            # If all else fails, return None
             return None
+
+    except Exception as e:
+        print(f"Web scraping failed: {e}")
+        return None
 
 
 
@@ -1377,11 +1598,7 @@ async def handle_message(client: Client, message: Message):
 
     download = aria2.add_uris(
         [direct_link],
-        options={
-            'continue': 'true',
-            # 'split': '128',  
-            # 'max-connection-per-server': '16',
-        }
+        options=options
     )
 
 
