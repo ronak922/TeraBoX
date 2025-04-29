@@ -1071,35 +1071,53 @@ async def find_between(text, start, end):
     except IndexError:
         return None
 
+import aiohttp
+import urllib.parse
+
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
+    cheems_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
+    secondary_api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
 
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
 
-        # First fallback: fetch the general link
+        # Primary API (CheemsBackup)
         try:
-            async with my_session.get(api_url) as response:
-                response.raise_for_status()
-                response_data = await response.json()
-
-            link = response_data.get("link")
-            dlink = response_data.get("dlink")
-
-            # Test direct_link by checking if it returns error 31362
-            if dlink:
-                async with my_session.head(dlink) as check_response:
-                    if check_response.status == 200:
+            async with my_session.get(cheems_api_url, allow_redirects=True) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                
+                if "application/json" in content_type:
+                    # It's JSON, try to parse
+                    data = await resp.json()
+                    print("Primary API (CheemsBackup) JSON Response:", data)
+                    dlink = data.get("direct_link") or data.get("link")
+                    if dlink:
                         return dlink
-                    else:
-                        print("Direct link fallback failed, using regular link if present.")
-            
-            if link:
-                return link
-
+                elif "video" in content_type or "octet-stream" in content_type:
+                    # It's a direct video or binary file
+                    print("Primary API (CheemsBackup) returned a direct file response.")
+                    return str(resp.url)  # Direct link to file
+                else:
+                    print(f"Primary API returned unknown content type: {content_type}")
         except Exception as e:
-            print(f"API fallback failed: {e}")
+            print(f"Primary API (CheemsBackup) fallback failed: {e}")
+
+        # Secondary API (terabox-pika)
+        try:
+            async with my_session.get(secondary_api_url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                print("Secondary API (terabox-pika) Response:", data)
+                
+                dlink = data.get("direct_link")
+                if dlink:
+                    return dlink
+                link = data.get("link")
+                if link:
+                    return link
+        except Exception as e:
+            print(f"Secondary API (terabox-pika) fallback failed: {e}")
 
         # Final fallback: Manual page scraping
         try:
@@ -1160,6 +1178,8 @@ async def fetch_download_link_async(url):
         except Exception as e:
             print(f"Final fallback failed: {e}")
             return None
+
+
 
 
 
