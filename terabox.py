@@ -2,6 +2,7 @@ from aria2p import API as Aria2API, Client as Aria2Client
 import asyncio
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import random
 import os
 import logging
 import math
@@ -301,76 +302,125 @@ async def send_text(client: Client, message: Message):
     if message.reply_to_message:
         # Inform the admin that the broadcast will be sent to all users
         await message.reply(
-            "Broadcast will be sent to ALL users.\n\n"
-            "Broadcast message is being processed."
+            "📢 Bʀᴏᴀᴅᴄᴀsᴛ ᴡɪʟʟ ʙᴇ sᴇɴᴛ ᴛᴏ ALL ᴜsᴇʀs.\n\n"
+            "⚙️ Bʀᴏᴀᴅᴄᴀsᴛ ᴍᴇssᴀɢᴇ ɪs ʙᴇɪɴɢ ᴘʀᴏᴄᴇssᴇᴅ."
         )
         
         # Get the broadcast message
         broadcast_msg = message.reply_to_message
         
-        # Get the list of all users (from the database)
-        query = await full_userbase()  # This function fetches all user IDs from the database
-        
-        # Perform broadcast
-        total = len(query)
-        successful = 0
-        blocked = 0
-        deleted = 0
-        unsuccessful = 0
-        
-        pls_wait = await message.reply("<i>ʙʀᴏᴀᴅᴄᴀꜱᴛ ᴘʀᴏᴄᴇꜱꜜɪɴɢ....</i>")
-        
-        for index, chat_id in enumerate(query):
-            try:
-                # Send message
-                await broadcast_msg.copy(chat_id=chat_id)
-                successful += 1
-            except FloodWait as e:
-                # Correctly use e.value instead of e.time
-                await asyncio.sleep(e.value)  # Correct way to access the wait time
+        # Get the list of all users from the database
+        try:
+            # Use a more reliable method to get user IDs - specifically looking for user_id field
+            user_ids = []
+            cursor = collection.find({}, {"user_id": 1})
+            for doc in cursor:
+                if "user_id" in doc and doc["user_id"] and isinstance(doc["user_id"], int):
+                    user_ids.append(doc["user_id"])
+            
+            if not user_ids:
+                await message.reply("❌ Nᴏ ᴠᴀʟɪᴅ ᴜsᴇʀs ғᴏᴜɴᴅ ɪɴ ᴛʜᴇ ᴅᴀᴛᴀʙᴀsᴇ.")
+                return
+                
+            # Perform broadcast
+            total = len(user_ids)
+            successful = 0
+            blocked = 0
+            deleted = 0
+            unsuccessful = 0
+            
+            pls_wait = await message.reply("<i>⚙️ Bʀᴏᴀᴅᴄᴀꜱᴛ ᴘʀᴏᴄᴇꜱꜱɪɴɢ...</i>")
+            
+            for index, chat_id in enumerate(user_ids):
                 try:
+                    # Ensure chat_id is an integer
+                    if not isinstance(chat_id, int):
+                        logger.warning(f"Skipping invalid chat_id: {chat_id} (not an integer)")
+                        unsuccessful += 1
+                        continue
+                        
+                    # Send message with a small delay to avoid hitting rate limits
+                    await asyncio.sleep(0.1)
                     await broadcast_msg.copy(chat_id=chat_id)
                     successful += 1
-                except Exception as inner_e:
-                    print(f"Failed to send message to {chat_id}: {inner_e}")  # Log the specific error
+                except FloodWait as e:
+                    # Handle FloodWait correctly
+                    logger.warning(f"FloodWait of {e.value} seconds encountered")
+                    await asyncio.sleep(e.value + 1)  # Add 1 second buffer
+                    try:
+                        await broadcast_msg.copy(chat_id=chat_id)
+                        successful += 1
+                    except Exception as inner_e:
+                        logger.error(f"Failed to send message to {chat_id} after FloodWait: {inner_e}")
+                        unsuccessful += 1
+                except UserIsBlocked:
+                    logger.info(f"User {chat_id} has blocked the bot")
+                    await del_user(chat_id)
+                    blocked += 1
+                except InputUserDeactivated:
+                    logger.info(f"User {chat_id} account is deactivated")
+                    await del_user(chat_id)
+                    deleted += 1
+                except Exception as e:
+                    logger.error(f"Unexpected error for {chat_id}: {e}")
                     unsuccessful += 1
-            except UserIsBlocked:
-                await del_user(chat_id)
-                blocked += 1
-            except InputUserDeactivated:
-                await del_user(chat_id)
-                deleted += 1
-            except Exception as e:
-                print(f"Unexpected error for {chat_id}: {e}")  # Log unexpected errors
-                unsuccessful += 1
+                
+                # Update loading bar every 5 users or for the last user
+                if index % 5 == 0 or index == total - 1:
+                    progress = (index + 1) / total
+                    bar_length = 20  # Length of the loading bar
+                    filled_length = int(bar_length * progress)
+                    bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                    
+                    try:
+                        await pls_wait.edit_text(
+                            f"<b>📢 Bʀᴏᴀᴅᴄᴀsᴛ Pʀᴏɢʀᴇss:</b>\n\n"
+                            f"<code>{bar}</code> {progress:.1%}\n\n"
+                            f"✅ Successful: <code>{successful}</code>\n"
+                            f"❌ Failed: <code>{unsuccessful}</code>\n"
+                            f"🚫 Blocked: <code>{blocked}</code>\n"
+                            f"🗑️ Deleted: <code>{deleted}</code>\n"
+                            f"⏳ Processing: <code>{index+1}/{total}</code>"
+                        )
+                    except MessageNotModified:
+                        # Ignore "message not modified" errors
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error updating progress message: {e}")
+
+            # Generate final status message
+            status = (
+                f"<b>📢 Bʀᴏᴀᴅᴄᴀsᴛ Cᴏᴍᴘʟᴇᴛᴇᴅ</b>\n\n"
+                f"<b>📊 Sᴛᴀᴛɪsᴛɪᴄs:</b>\n"
+                f"• Total Users: <code>{total}</code>\n"
+                f"• Successful: <code>{successful}</code>\n"
+                f"• Blocked Users: <code>{blocked}</code>\n"
+                f"• Deleted Accounts: <code>{deleted}</code>\n"
+                f"• Unsuccessful: <code>{unsuccessful}</code>\n\n"
+                f"✅ Success Rate: <code>{(successful/total)*100:.1f}%</code>"
+            )
             
-            # Update loading bar
-            progress = (index + 1) / total
-            bar_length = 20  # Length of the loading bar
-            filled_length = int(bar_length * progress)
-            bar = '█' * filled_length + '-' * (bar_length - filled_length)
-            await pls_wait.edit(f"<b>Broadcast Progress:</b>\n{bar} {progress:.1%}")
-
-        # Generate status message
-        status = f"""<b><u>ʙʀᴏᴀᴅᴄᴀꜱᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ</u>
-
-Total Users: <code>{total}</code>
-Successful: <code>{successful}</code>
-Blocked Users: <code>{blocked}</code>
-Deleted Accounts: <code>{deleted}</code>
-Unsuccessful: <code>{unsuccessful}</code></b>"""
-        
-        await pls_wait.edit(status)
+            try:
+                await pls_wait.edit_text(status)
+            except Exception as e:
+                logger.error(f"Failed to send final status: {e}")
+                await message.reply(status)
+                
+        except Exception as e:
+            logger.error(f"Broadcast failed: {e}", exc_info=True)
+            await message.reply(f"❌ Bʀᴏᴀᴅᴄᴀsᴛ ғᴀɪʟᴇᴅ: {str(e)}")
     
     else:
-        msg = await message.reply(REPLY_ERROR)
+        # If no message is replied to
+        msg = await message.reply(
+            "⚠️ <b>Usᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴀs ᴀ ʀᴇᴘʟʏ ᴛᴏ ᴀɴʏ ᴛᴇʟᴇɢʀᴀᴍ ᴍᴇssᴀɢᴇ</b>\n\n"
+            "<code>/broadcast</code> (as reply to message)"
+        )
         await asyncio.sleep(8)
         await msg.delete()
     
     return
 
-
-REPLY_ERROR = """Usᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴀs ᴀ ʀᴇᴘʟʏ ᴛᴏ ᴀɴʏ ᴛᴇʟᴇɢʀᴀᴍ ᴍᴇssᴀɢᴇ ᴡɪᴛʜᴏᴜᴛ ᴀɴʏ sᴘᴀᴄᴇs."""
 
 import time
 from pyrogram import Client, filters
@@ -639,6 +689,70 @@ async def confirm_remove_channel(client, callback_query: CallbackQuery):
         await callback_query.message.edit_text("❌ Invalid index.")
     # Show updated menu or confirmation (optional)
 
+
+@app.on_callback_query(filters.regex("^restart_bot$"))
+async def restart_bot_callback(client, callback_query: CallbackQuery):
+    # Check if the user is an admin
+    if callback_query.from_user.id not in ADMINS:
+        await callback_query.answer("Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴛᴏ ʀᴇsᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ.", show_alert=True)
+        return
+    
+    # Inform the user that the bot is restarting
+    await callback_query.answer("Bᴏᴛ ɪs ʀᴇsᴛᴀʀᴛɪɴɢ...", show_alert=True)
+    
+    # Cool restart message with animation effect
+    restart_message = (
+        "╭─━━━━━━━━━━━━━━━━━━━━─╮\n"
+        "┃    🔄 Rᴇsᴛᴀʀᴛɪɴɢ Bᴏᴛ    ┃\n"
+        "╰─━━━━━━━━━━━━━━━━━━━━─╯\n\n"
+        "⚙️ <b>Sʏsᴛᴇᴍ ɪs ʀᴇʙᴏᴏᴛɪɴɢ...</b>\n\n"
+        "• Sᴀᴠɪɴɢ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴs\n"
+        "• Cʟᴏsɪɴɢ ᴄᴏɴɴᴇᴄᴛɪᴏɴs\n"
+        "• Rᴇsᴛᴀʀᴛɪɴɢ sᴇʀᴠɪᴄᴇs\n\n"
+        "🕒 Tʜᴇ ʙᴏᴛ ᴡɪʟʟ ʙᴇ ʙᴀᴄᴋ ᴏɴʟɪɴᴇ sʜᴏʀᴛʟʏ.\n"
+        "🚀 Iɴɪᴛɪᴀᴛᴇᴅ ʙʏ: <a href='tg://user?id={}'>{}</a>"
+    ).format(
+        callback_query.from_user.id,
+        callback_query.from_user.first_name
+    )
+    
+    # Show animation effect by updating the message multiple times
+    loading_message = await callback_query.message.edit_text(
+        "╭─━━━━━━━━━━━━━━━━━━━━─╮\n"
+        "┃    🔄 Rᴇsᴛᴀʀᴛɪɴɢ Bᴏᴛ    ┃\n"
+        "╰─━━━━━━━━━━━━━━━━━━━━─╯\n\n"
+        "⏳ Pʀᴇᴘᴀʀɪɴɢ ᴛᴏ ʀᴇsᴛᴀʀᴛ..."
+    )
+    
+    # Simulate a loading animation
+    loading_chars = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]
+    for i in range(3):  # Just a few iterations to avoid delays
+        for char in loading_chars:
+            try:
+                await loading_message.edit_text(
+                    "╭─━━━━━━━━━━━━━━━━━━━━─╮\n"
+                    f"┃    {char} Rᴇsᴛᴀʀᴛɪɴɢ Bᴏᴛ {char}    ┃\n"
+                    "╰─━━━━━━━━━━━━━━━━━━━━─╯\n\n"
+                    f"⏳ Pʀᴇᴘᴀʀɪɴɢ ᴛᴏ ʀᴇsᴛᴀʀᴛ... {i+1}/3"
+                )
+                await asyncio.sleep(0.2)
+            except Exception:
+                # Ignore errors during animation
+                pass
+    
+    # Final message before restart
+    await callback_query.message.edit_text(restart_message)
+    
+    # Log the restart event
+    logger.info(f"Bᴏᴛ ʀᴇsᴛᴀʀᴛ ɪɴɪᴛɪᴀᴛᴇᴅ ʙʏ ᴀᴅᴍɪɴ: {callback_query.from_user.id}")
+    
+    # Give a moment for the message to be displayed before restarting
+    await asyncio.sleep(2)
+    
+    # Restart the bot using the same method as in the /restart command
+    os.execv(sys.executable, ['python'] + sys.argv)
+
+
 # Add a back to main menu handler
 @app.on_callback_query(filters.regex("^back_to_main$"))
 async def back_to_main_menu(client, callback_query: CallbackQuery):
@@ -650,7 +764,7 @@ async def back_to_main_menu(client, callback_query: CallbackQuery):
         [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
         [InlineKeyboardButton(f"{token_status} Tᴏᴋᴇɴ Sʏsᴛᴇᴍ", callback_data="toggle_token_system")],
-        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+        [InlineKeyboardButton("🔄 ʀᴇsᴛᴀʀᴛ ʙᴏᴛ", callback_data="restart_bot")]
     ])
     
     await callback_query.message.edit_text(
@@ -723,7 +837,7 @@ async def admin_panel(client, message: Message):
         [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
         [InlineKeyboardButton(f"{token_status} Tᴏᴋᴇɴ Sʏsᴛᴇᴍ", callback_data="toggle_token_system")],
-        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+        [InlineKeyboardButton("🔄 ʀᴇsᴛᴀʀᴛ ʙᴏᴛ", callback_data="restart_bot")]
     ])
     
     await message.reply_text(
@@ -756,7 +870,7 @@ async def toggle_token_system(client, callback_query: CallbackQuery):
         [InlineKeyboardButton("📢 Manage Force Sub", callback_data="manage_forcesub")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
         [InlineKeyboardButton(f"{token_status} Token System", callback_data="toggle_token_system")],
-        [InlineKeyboardButton("🔄 Restart Bot", callback_data="restart_bot")]
+        [InlineKeyboardButton("🔄 ʀᴇsᴛᴀʀᴛ ʙᴏᴛ", callback_data="restart_bot")]
     ])
     
     await callback_query.message.edit_text(
@@ -766,44 +880,416 @@ async def toggle_token_system(client, callback_query: CallbackQuery):
 
 @app.on_message(filters.command("stats"))
 async def stats_command(client: Client, message: Message):
-    # Only allow the owner to access stats
-    if message.from_user.id != OWNER_ID:
-        await message.reply_text("⚠️ This command is only available to the bot owner.")
+    global download_count, total_download_size
+    # Only allow the owner and admins to access stats
+    if message.from_user.id not in ADMINS:
+        await message.reply_text("⚠️ This command is only available to bot administrators.")
         return
     
-    # Get system stats
-    cpu_usage = psutil.cpu_percent()
-    ram_usage = psutil.virtual_memory().percent
-    disk_usage = psutil.disk_usage('/').percent
+    stats_doc = db.get_collection("stats").find_one({"_id": "download_stats"})
+    if stats_doc:
+        download_count = stats_doc.get("count", download_count)
+        total_download_size = stats_doc.get("total_size", total_download_size)
     
-    # Get MongoDB stats
-    user_count = collection.count_documents({})
-    active_tokens = collection.count_documents({"token_status": "active"})
+    # Send a processing message first to improve UX
+    processing_msg = await message.reply_text("🤖 <b>Gᴀᴛʜᴇʀɪɴɢ sᴛᴀᴛɪsᴛɪᴄs...</b>")
     
-    # Calculate uptime
-    uptime = datetime.now() - start_time
-    days = uptime.days
-    hours, remainder = divmod(uptime.seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
+    try:
+        # Get system stats with error handling
+        try:
+            cpu_usage = psutil.cpu_percent(interval=1)  # More accurate with interval
+            ram = psutil.virtual_memory()
+            ram_usage = ram.percent
+            ram_used = format_size(ram.used)
+            ram_total = format_size(ram.total)
+            disk = psutil.disk_usage('/')
+            disk_usage = disk.percent
+            disk_used = format_size(disk.used)
+            disk_total = format_size(disk.total)
+        except Exception as e:
+            logger.error(f"Error getting system stats: {e}")
+            cpu_usage = ram_usage = disk_usage = "Error"
+            ram_used = ram_total = disk_used = disk_total = "N/A"
+        
+        # Get MongoDB stats with error handling
+        try:
+            user_count = collection.count_documents({})
+            active_tokens = collection.count_documents({"token_status": "active"})
+            inactive_tokens = collection.count_documents({"token_status": "inactive"})
+            
+            # Get additional stats
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            new_users_today = collection.count_documents({"created_at": {"$gte": today}})
+            
+            # Get download stats from the last 24 hours
+            yesterday = datetime.now() - timedelta(days=1)
+            recent_downloads = collection.count_documents({"last_download": {"$gte": yesterday}})
+        except Exception as e:
+            logger.error(f"Error getting MongoDB stats: {e}")
+            user_count = active_tokens = inactive_tokens = new_users_today = recent_downloads = "Error"
+        
+        # Calculate uptime
+        uptime = datetime.now() - start_time
+        days = uptime.days
+        hours, remainder = divmod(uptime.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        # Get bot settings
+        settings = await get_settings()
+        force_channels = len(settings.get("FORCE_SUB_CHANNELS", []))
+        request_channels = len(settings.get("REQUEST_SUB_CHANNELS", []))
+        
+        # Format the stats message with more details and better organization
+        stats_text = (
+            f"📊 <b>Bᴏᴛ Sᴛᴀᴛɪsᴛɪᴄs</b> 📊\n\n"
+            f"<b>💻 Sʏsᴛᴇᴍ Rᴇsᴏᴜʀᴄᴇs:</b>\n"
+            f"  • CPU: {cpu_usage}%\n"
+            f"  • RAM: {ram_usage}% ({ram_used}/{ram_total})\n"
+            f"  • Disk: {disk_usage}% ({disk_used}/{disk_total})\n\n"
+            
+            f"<b>⏳ Uᴘᴛɪᴍᴇ:</b>\n"
+            f"  • {days}d {hours}h {minutes}m {seconds}s\n\n"
+            
+            f"<b>👥 Usᴇʀ Sᴛᴀᴛɪsᴛɪᴄs:</b>\n"
+            f"  • Total Users: {user_count}\n"
+            f"  • New Today: {new_users_today}\n"
+            f"  • Active Tokens: {active_tokens}\n"
+            f"  • Inactive Tokens: {inactive_tokens}\n\n"
+            
+            f"<b>📈 Aᴄᴛɪᴠɪᴛʏ:</b>\n"
+            f"  • Downloads: {download_count}\n"
+            f"  • Recent (24h): {recent_downloads}\n"
+            f"  • Total Downloaded: {format_size(total_download_size)}\n\n"
+            
+            f"<b>🔧 Cᴏɴғɪɢᴜʀᴀᴛɪᴏɴ:</b>\n"
+            f"  • Force Sub Channels: {force_channels}\n"
+            f"  • Request Channels: {request_channels}\n"
+            f"  • Token System: {'✅ Enabled' if TOKEN_SYSTEM_ENABLED else '❌ Disabled'}\n"
+            f"  • DB Connection: {'✅ Connected' if client else '❌ Disconnected'}\n"
+            f"  • Database: {DATABASE_NAME} - {COLLECTION_NAME}\n\n"
+            
+            f"<b>🚀 Pᴏᴡᴇʀᴇᴅ ʙʏ:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
+        )
+
+        # Create inline keyboard for admin actions
+        # keyboard = InlineKeyboardMarkup([
+        #     [InlineKeyboardButton("🔄 Rᴇғʀᴇsʜ Sᴛᴀᴛs", callback_data="refresh_stats")],
+        #     [InlineKeyboardButton("⚙️ Aᴅᴍɪɴ Pᴀɴᴇʟ", callback_data="admin_panel")]
+        # ])
+
+        # Edit the processing message with the stats
+        await processing_msg.edit_text(stats_text,  disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"Error generating stats: {e}", exc_info=True)
+        await processing_msg.edit_text(f"❌ Error generating stats: {str(e)}")
+
+@app.on_message(filters.command("info"))
+async def user_info_command(client: Client, message: Message):
+    """Command to get information about a user"""
+    # Check if admin is requesting info about another user
+    is_admin = message.from_user.id in ADMINS
+    target_user_id = None
     
-    # Format the stats message
-    stats_text = (
-        f"📊 <b>BOT STATS</b> 📊\n"
-        f"💻 <b>System:</b> CPU: {cpu_usage}% | RAM: {ram_usage}% | Disk: {disk_usage}%\n"
-        f"⏳ <b>Uptime:</b> {days}d {hours}h {minutes}m {seconds}s\n"
-        f"👤 <b>Users:</b> {user_count} | 🔑 Active Tokens: {active_tokens}\n"
-        f"📈 <b>Downloads:</b> {download_count} | Total Downloaded: {format_size(total_download_size)}\n"
-        f"🔌 <b>DB Connection:</b> {'✅ Connected' if client else '❌ Disconnected'}\n"
-        f"📦 <b>DB:</b> {DATABASE_NAME} - {COLLECTION_NAME}\n"
-        f"🚀 <b>Powered by:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
+    # If admin is requesting info about another user via reply
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_user_id = message.reply_to_message.from_user.id
+    # If user ID is provided in command
+    elif len(message.command) > 1:
+        try:
+            target_user_id = int(message.command[1])
+        except ValueError:
+            await message.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴜsᴇʀ ɪᴅ ғᴏʀᴍᴀᴛ. ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ ɴᴜᴍᴇʀɪᴄ ɪᴅ.")
+            return
+    # If admin and no ID provided, ask for user ID
+    elif is_admin:
+        # Create a message to ask for user ID
+        ask_msg = await message.reply_text(
+            "🔍 ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴛʜᴇ ᴜsᴇʀ ɪᴅ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴄʜᴇᴄᴋ:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="cancel_info")]
+            ])
+        )
+        
+        # Store this in a global dictionary to track waiting states
+        if not hasattr(app, 'waiting_for_input'):
+            app.waiting_for_input = {}
+        
+        app.waiting_for_input[message.from_user.id] = {
+            'type': 'info_user_id',
+            'message_id': ask_msg.id,
+            'chat_id': message.chat.id,
+            'timestamp': time.time()
+        }
+        
+        # We'll return here and handle the response in a separate handler
+        return
+    else:
+        # User is requesting their own info
+        target_user_id = message.from_user.id
+    
+    # Continue with displaying user info...
+    await display_user_info(client, message, target_user_id)
+
+# Add a handler for text messages that could be responses to our prompts
+@app.on_message(filters.text & filters.private)
+async def handle_text_input(client: Client, message: Message):
+    # Check if this user is waiting for input
+    if hasattr(app, 'waiting_for_input') and message.from_user.id in app.waiting_for_input:
+        input_data = app.waiting_for_input[message.from_user.id]
+        
+        # Check if the input is still valid (not expired)
+        if time.time() - input_data['timestamp'] > 60:  # 60 seconds timeout
+            del app.waiting_for_input[message.from_user.id]
+            try:
+                await client.delete_messages(input_data['chat_id'], input_data['message_id'])
+            except Exception as e:
+                logger.error(f"Error deleting message: {e}")
+            await message.reply_text("⏱️ ᴛɪᴍᴇᴏᴜᴛ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ.")
+            return
+        
+        # Handle different types of expected input
+        if input_data['type'] == 'info_user_id':
+            # Try to parse the user ID
+            try:
+                target_user_id = int(message.text.strip())
+                
+                # Clean up
+                del app.waiting_for_input[message.from_user.id]
+                try:
+                    await client.delete_messages(input_data['chat_id'], input_data['message_id'])
+                except Exception as e:
+                    logger.error(f"Error deleting message: {e}")
+                
+                # Display user info
+                await display_user_info(client, message, target_user_id)
+            except ValueError:
+                await message.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴜsᴇʀ ɪᴅ ғᴏʀᴍᴀᴛ. ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ ɴᴜᴍᴇʀɪᴄ ɪᴅ.")
+                return
+        
+        # Don't process this message further
+        return
+
+# Add a callback handler for the cancel button
+@app.on_callback_query(filters.regex("^cancel_info$"))
+async def cancel_info_request(client, callback_query):
+    user_id = callback_query.from_user.id
+    
+    if hasattr(app, 'waiting_for_input') and user_id in app.waiting_for_input:
+        del app.waiting_for_input[user_id]
+    
+    await callback_query.message.delete()
+    await callback_query.answer("ᴏᴘᴇʀᴀᴛɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.")
+
+# Separate function to display user info
+async def display_user_info(client, message, target_user_id):
+    """Display information about a user"""
+    is_admin = message.from_user.id in ADMINS
+    
+    # Get user data from database
+    user_data = collection.find_one({"user_id": target_user_id})
+    
+    if not user_data and not is_admin:
+        # If no data found for self-lookup, create basic entry
+        user_data = {
+            "user_id": target_user_id,
+            "created_at": datetime.now(),
+            "token_status": "inactive",
+            "downloads": 0,
+            "total_download_size": 0
+        }
+        collection.insert_one(user_data)
+    elif not user_data and is_admin:
+        await message.reply_text(f"❌ ɴᴏ ᴅᴀᴛᴀ ғᴏᴜɴᴅ ғᴏʀ ᴜsᴇʀ ɪᴅ: `{target_user_id}`")
+        return
+    
+    # Get user info from Telegram
+    try:
+        user = await client.get_users(target_user_id)
+        username = f"@{user.username}" if user.username else "ɴᴏɴᴇ"
+        full_name = f"{user.first_name} {user.last_name if user.last_name else ''}"
+    except Exception as e:
+        logger.error(f"Error getting user info: {e}")
+        username = "ᴜɴᴋɴᴏᴡɴ"
+        full_name = "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
+    
+    # Format user information
+    created_at = user_data.get("created_at", "ᴜɴᴋɴᴏᴡɴ")
+    if isinstance(created_at, datetime):
+        created_at = created_at.strftime("%Y-%m-%d %H:%M:%S")
+    
+    token_status = user_data.get("token_status", "inactive")
+    token_expiry = user_data.get("token_expiry")
+    if token_expiry and isinstance(token_expiry, datetime):
+        if token_expiry > datetime.now():
+            token_expiry_str = f"ᴇxᴘɪʀᴇs: {token_expiry.strftime('%Y-%m-%d %H:%M:%S')}"
+            time_left = token_expiry - datetime.now()
+            hours, remainder = divmod(time_left.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            token_expiry_str += f" ({time_left.days}ᴅ {hours}ʜ {minutes}ᴍ ʟᴇғᴛ)"
+        else:
+            token_expiry_str = "ᴇxᴘɪʀᴇᴅ"
+    else:
+        token_expiry_str = "ɴ/ᴀ"
+    
+    downloads = user_data.get("downloads", 0)
+    total_download_size = format_size(user_data.get("total_download_size", 0))
+    last_download = user_data.get("last_download")
+    if last_download and isinstance(last_download, datetime):
+        last_download = last_download.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        last_download = "ɴᴇᴠᴇʀ"
+    
+    pending_requests = user_data.get("pending_requests", [])
+    pending_count = len(pending_requests) if pending_requests else 0
+    
+    # Create info message with small caps
+    info_text = (
+        f"📊 <b>ᴜsᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b> 📊\n\n"
+        f"<b>🆔 ᴜsᴇʀ ɪᴅ:</b> <code>{target_user_id}</code>\n"
+        f"<b>👤 ɴᴀᴍᴇ:</b> {full_name}\n"
+        f"<b>🔖 ᴜsᴇʀɴᴀᴍᴇ:</b> {username}\n"
+        f"<b>📅 ᴊᴏɪɴᴇᴅ:</b> {created_at}\n\n"
+        
+        f"<b>🔑 ᴛᴏᴋᴇɴ sᴛᴀᴛᴜs:</b> {'✅ ᴀᴄᴛɪᴠᴇ' if token_status == 'active' else '❌ ɪɴᴀᴄᴛɪᴠᴇ'}\n"
+        f"<b>⏳ ᴛᴏᴋᴇɴ ᴇxᴘɪʀʏ:</b> {token_expiry_str}\n\n"
+        
+        f"<b>📈 ᴀᴄᴛɪᴠɪᴛʏ:</b>\n"
+        f"<b>• ᴅᴏᴡɴʟᴏᴀᴅs:</b> {downloads}\n"
+        f"<b>• ᴛᴏᴛᴀʟ sɪᴢᴇ:</b> {total_download_size}\n"
+        f"<b>• ʟᴀsᴛ ᴅᴏᴡɴʟᴏᴀᴅ:</b> {last_download}\n"
+        f"<b>• ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs:</b> {pending_count}\n"
+    )
+    
+    # Add admin options if admin is viewing another user
+    if is_admin and target_user_id != message.from_user.id:
+        keyboard = [
+            [InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data=f"refresh_info_{target_user_id}")],
+            [
+                InlineKeyboardButton("🔑 ᴀᴄᴛɪᴠᴀᴛᴇ ᴛᴏᴋᴇɴ", callback_data=f"activate_token_{target_user_id}"),
+                InlineKeyboardButton("🚫 ᴅᴇᴀᴄᴛɪᴠᴀᴛᴇ ᴛᴏᴋᴇɴ", callback_data=f"deactivate_token_{target_user_id}")
+            ],
+            [InlineKeyboardButton("❌ ᴅᴇʟᴇᴛᴇ ᴜsᴇʀ", callback_data=f"delete_user_{target_user_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    else:
+        reply_markup = None
+    
+    await message.reply_text(info_text, reply_markup=reply_markup)
+
+@app.on_callback_query(filters.regex(r"^refresh_info_(\d+)$"))
+async def refresh_info_callback(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    # Create a message object with the necessary attributes
+    message = callback_query.message
+    message.command = ["info", str(user_id)]
+    message.from_user = callback_query.from_user
+    
+    # Call the display_user_info function directly
+    await display_user_info(client, message, user_id)
+    
+    # Delete the original message to avoid clutter
+    await callback_query.message.delete()
+
+@app.on_callback_query(filters.regex(r"^activate_token_(\d+)$"))
+async def activate_user_token(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    # Generate and activate token
+    token = str(uuid.uuid4())
+    expiry = datetime.now() + timedelta(hours=12)
+    
+    collection.update_one(
+        {"user_id": user_id},
+        {"$set": {"token": token, "token_status": "active", "token_expiry": expiry}},
+        upsert=True
+    )
+    
+    await callback_query.answer("ᴛᴏᴋᴇɴ ᴀᴄᴛɪᴠᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!", show_alert=True)
+    
+    # Refresh the info display
+    message = callback_query.message
+    message.command = ["info", str(user_id)]
+    message.from_user = callback_query.from_user
+    await display_user_info(client, message, user_id)
+    await callback_query.message.delete()
+
+@app.on_callback_query(filters.regex(r"^deactivate_token_(\d+)$"))
+async def deactivate_user_token(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    collection.update_one(
+        {"user_id": user_id},
+        {"$set": {"token_status": "inactive"}}
+    )
+    
+    await callback_query.answer("ᴛᴏᴋᴇɴ ᴅᴇᴀᴄᴛɪᴠᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!", show_alert=True)
+    
+    # Refresh the info display
+    message = callback_query.message
+    message.command = ["info", str(user_id)]
+    message.from_user = callback_query.from_user
+    await display_user_info(client, message, user_id)
+    await callback_query.message.delete()
+
+@app.on_callback_query(filters.regex(r"^delete_user_(\d+)$"))
+async def delete_user_data(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    # Confirm deletion with a new keyboard
+    confirm_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ ʏᴇs, ᴅᴇʟᴇᴛᴇ", callback_data=f"confirm_delete_{user_id}"),
+            InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data=f"cancel_delete_{user_id}")
+        ]
+    ])
+    
+    await callback_query.message.edit_text(
+        f"⚠️ ᴀʀᴇ ʏᴏᴜ sᴜʀᴇ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴅᴇʟᴇᴛᴇ ᴀʟʟ ᴅᴀᴛᴀ ғᴏʀ ᴜsᴇʀ ɪᴅ: `{user_id}`?\n\n"
+        "ᴛʜɪs ᴀᴄᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ᴜɴᴅᴏɴᴇ.",
+        reply_markup=confirm_keyboard
     )
 
-    try:
-        await message.reply_text(stats_text, disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"Error sending stats: {e}")
-        await message.reply_text("Error generating stats. Check logs for details.")
+@app.on_callback_query(filters.regex(r"^confirm_delete_(\d+)$"))
+async def confirm_delete_user(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    # Delete user data
+    result = collection.delete_one({"user_id": user_id})
+    
+    if result.deleted_count > 0:
+        await callback_query.message.edit_text(f"✅ ᴜsᴇʀ ᴅᴀᴛᴀ ғᴏʀ ɪᴅ: `{user_id}` ʜᴀs ʙᴇᴇɴ ᴅᴇʟᴇᴛᴇᴅ.")
+    else:
+        await callback_query.message.edit_text(f"❌ ɴᴏ ᴅᴀᴛᴀ ғᴏᴜɴᴅ ғᴏʀ ᴜsᴇʀ ɪᴅ: `{user_id}`.")
 
+@app.on_callback_query(filters.regex(r"^cancel_delete_(\d+)$"))
+async def cancel_delete_user(client, callback_query):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴅᴏ ᴛʜɪs.", show_alert=True)
+    
+    user_id = int(callback_query.data.split("_")[2])
+    
+    # Go back to user info display
+    message = callback_query.message
+    message.command = ["info", str(user_id)]
+    message.from_user = callback_query.from_user
+    await display_user_info(client, message, user_id)
+    await callback_query.message.delete()
 
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
@@ -1418,7 +1904,8 @@ async def handle_message(client: Client, message: Message):
         total_bars = 10
         filled_bars = int(progress // (100 / total_bars))
         empty_bars = total_bars - filled_bars
-        progress_bar = "➤" * filled_bars + "➖" * empty_bars
+        emojis = ["💀", "👾", "🤖", "🧠", "🚀", "⚡", "🔥"]
+        progress_bar = "".join(random.choices(emojis, k=filled_bars)) + "▫️" * empty_bars
         truncated_name = truncate_filename(download.name)
 
         eta = download.eta if download.eta else "Calculating..."
@@ -1438,15 +1925,13 @@ async def handle_message(client: Client, message: Message):
         else:
             speed_icon = "🐢"
 
-        status_text = (        
-            f"<b>━━━「 Tᴇʀᴀʙᴏx Dᴏᴡɴʟᴏᴀᴅᴇʀ 」━━━  </b>\n\n"
-            f"╭─➤ <b>Fɪʟᴇ:</b> {truncated_name}\n"
-            f"├─➤ <b>Pʀᴏɢʀᴇss:</b> {progress:.2f}%\n"
-            f"├─➤ <b>Pʀᴏᴄᴇssᴇᴅ:</b> {format_size(download.completed_length)} / {format_size(download.total_length)}\n"
-            f"├─➤ <b>Sᴛᴀᴛᴜs: {current_status}</b>\n"
-            f"├─➤ <b>Sᴘᴇᴇᴅ:</b> {speed_icon} {format_size(speed)}/s\n"
-            f"├─➤ <b>Eᴛᴀ:</b> {eta}\n"
-            f"╰─➤ <b>Rᴇǫᴜᴇsᴛᴇᴅ Bʏ:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | <code>{user_id}</code>\n"
+        status_text = (
+            f"📛 <code><b>{truncated_name}</b></code>\n"
+            f"🎲 <code><b>{progress:.2f}%</b></code>\n"
+            f"🐾 <code> <b>{format_size(download.completed_length)}</b> / {format_size(download.total_length)}</code>\n"
+            f"<code>{speed_icon} <b>{format_size(speed)}/s</b> | ⏳ ETA: <b>{eta}</b></code>\n"
+            f" <i>{current_status}</i>\n"
+            f"👤 <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
             )
         while True:
             try:
@@ -1575,6 +2060,7 @@ async def handle_message(client: Client, message: Message):
             raise
 
     async def handle_upload():
+        global download_count, total_download_size
         file_size = os.path.getsize(file_path)
         part_caption = caption
 
@@ -1768,8 +2254,26 @@ async def handle_message(client: Client, message: Message):
 
         await message.reply_sticker("CAACAgUAAxkBAAEBOQVoBLWRUSRCieoGNbvQ5cJ1U8qtWgACKg0AAprJqVcDgujJs5TjwTYE")
         # await message.reply_text("✅ Uᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ! Eɴᴊᴏʏ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ. 😎")
+        download_count += 1
+        total_download_size += file_size
 
+        db.get_collection("stats").update_one(  
+           {"_id": "download_stats"},
+           {
+               "$inc": {"count": 1, "total_size": file_size},
+               "$push": {"recent_downloads": datetime.now()}
+            },
+            upsert=True
+        )
+        collection.update_one(
+            {"user_id": user_id},
+            {
+                "$inc": {"downloads": 1, "total_downloaded": file_size},
+                "$set": {"last_download": datetime.now()}
+            }
+        )
     start_time = datetime.now()
+    
     await handle_upload()
 
     try:
@@ -1860,7 +2364,7 @@ async def check_dump_channel_access():
         # Try with bot client first
         chat = await app.get_chat(DUMP_CHAT_ID)
         bot_member = await app.get_chat_member(DUMP_CHAT_ID, app.me.id)
-        logger.info(f"Bot access to dump channel: {chat.title}, permissions: {bot_member.privileges}")
+        # logger.info(f"Bot access to dump channel: {chat.title}, permissions: {bot_member.privileges}")
         
         # Try with user client if available
         if user and USER_SESSION_STRING:
@@ -1877,6 +2381,11 @@ async def check_dump_channel_access():
         return False
     
 async def main():
+    global download_count, total_download_size
+    stats_doc = db.get_collection("stats").find_one({"_id": "download_stats"})
+    if stats_doc:
+        download_count = stats_doc.get("count", 0)
+        total_download_size = stats_doc.get("total_size", 0)
     # Start the web server
     await web_server()
     logger.info("Web server started")
