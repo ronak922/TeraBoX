@@ -35,7 +35,7 @@ import urllib.parse
 from urllib.parse import urlparse
 import requests
 
-OWNER_ID = 7663297585
+OWNER_ID = 7560922302
 ADMINS = [OWNER_ID]  # Add more admin IDs as needed
 
 logger = logging.getLogger(__name__)
@@ -489,7 +489,7 @@ async def get_settings():
         default_settings = {
             "_id": "bot_settings",
             "FORCE_SUB_CHANNELS": [FSUB_ID],  # Use your existing FSUB_ID
-            "REQUEST_SUB_CHANNELS": [-1002631104533],  # Default approval channel
+            "REQUEST_SUB_CHANNELS": [-1002630824315],  # Default approval channel
             "TOKEN_SYSTEM_ENABLED": True
         }
         settings_col.insert_one(default_settings)
@@ -503,7 +503,7 @@ async def get_settings():
             {"_id": "bot_settings"},
             {"$set": {"REQUEST_SUB_CHANNELS": [-1002631104533]}}
         )
-        settings_doc["REQUEST_SUB_CHANNELS"] = [-1002631104533]
+        settings_doc["REQUEST_SUB_CHANNELS"] = [-1002630824315]
 
     # Ensure TOKEN_SYSTEM_ENABLED exists
     if "TOKEN_SYSTEM_ENABLED" not in settings_doc:
