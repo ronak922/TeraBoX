@@ -501,7 +501,7 @@ async def get_settings():
     if "REQUEST_SUB_CHANNELS" not in settings_doc or not settings_doc["REQUEST_SUB_CHANNELS"]:
         settings_col.update_one(
             {"_id": "bot_settings"},
-            {"$set": {"REQUEST_SUB_CHANNELS": [-1002631104533]}}
+            {"$set": {"REQUEST_SUB_CHANNELS": [-1002630824315]}}
         )
         settings_doc["REQUEST_SUB_CHANNELS"] = [-1002630824315]
 
