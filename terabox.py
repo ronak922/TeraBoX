@@ -104,8 +104,10 @@ options = {
     "retry-wait": "3",
     "continue": "true",
     "allow-overwrite": "true",
-    "min-split-size": "4M",
-    "split": "10"
+    "min-split-size": "4M",  # Minimum size of each split
+    "split": "16",           # Number of parts to split the file into
+    "max-connection-per-server": "16",  # Number of connections per server
+    "max-overall-download-limit": "40M"  # Limit download speed to 40 Mbps
 }
 
 API_ID = os.environ.get('TELEGRAM_API', '')
@@ -1556,11 +1558,7 @@ async def handle_message(client: Client, message: Message):
 
     download = aria2.add_uris(
         [direct_link],
-        options={
-            'continue': 'true',
-            # 'split': '128',  
-            # 'max-connection-per-server': '16',
-        }
+        options=options
     )
 
 
