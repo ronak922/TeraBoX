@@ -35,7 +35,7 @@ import urllib.parse
 from urllib.parse import urlparse
 import requests
 
-OWNER_ID = 7663297585
+OWNER_ID = 7560922302
 ADMINS = [OWNER_ID]  # Add more admin IDs as needed
 
 logger = logging.getLogger(__name__)
@@ -489,7 +489,7 @@ async def get_settings():
         default_settings = {
             "_id": "bot_settings",
             "FORCE_SUB_CHANNELS": [FSUB_ID],  # Use your existing FSUB_ID
-            "REQUEST_SUB_CHANNELS": [-1002631104533],  # Default approval channel
+            "REQUEST_SUB_CHANNELS": [-1002630824315],  # Default approval channel
             "TOKEN_SYSTEM_ENABLED": True
         }
         settings_col.insert_one(default_settings)
@@ -503,7 +503,7 @@ async def get_settings():
             {"_id": "bot_settings"},
             {"$set": {"REQUEST_SUB_CHANNELS": [-1002631104533]}}
         )
-        settings_doc["REQUEST_SUB_CHANNELS"] = [-1002631104533]
+        settings_doc["REQUEST_SUB_CHANNELS"] = [-1002630824315]
 
     # Ensure TOKEN_SYSTEM_ENABLED exists
     if "TOKEN_SYSTEM_ENABLED" not in settings_doc:
@@ -968,7 +968,7 @@ async def stats_command(client: Client, message: Message):
             f"  • DB Connection: {'✅ Connected' if client else '❌ Disconnected'}\n"
             f"  • Database: {DATABASE_NAME} - {COLLECTION_NAME}\n\n"
             
-            f"<b>🚀 Pᴏᴡᴇʀᴇᴅ ʙʏ:</b> <a href='https://t.me/NyxKingx'>NʏxKɪɴɢ❤️🚀</a>"
+            f"<b>🚀 Pᴏᴡᴇʀᴇᴅ ʙʏ:</b> <a href='https://t.me/NyxKingS'>NʏxKɪɴɢ❤️🚀</a>"
         )
 
         # Create inline keyboard for admin actions
@@ -986,8 +986,8 @@ async def stats_command(client: Client, message: Message):
 # 
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
-    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jffmain")
-    developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/NyxKingX")
+    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/+8NE_GtI0UQZiZjc1")
+    developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/NyxKingS")
     reply_markup = InlineKeyboardMarkup([[join_button, developer_button]])
     final_msg = (
         "🌟 ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅ ʙᴏᴛ!\n\n"
@@ -1124,7 +1124,7 @@ async def start_command(client: Client, message: Message):
             final_msg = (f"<b>Sᴇɴᴅ Tᴇʀᴀʙᴏx Lɪɴᴋ Tᴏ Dᴏᴡɴʟᴏᴀᴅ Vɪᴅᴇᴏ</b>")
 
             new_btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXLinks")]
+                    [InlineKeyboardButton("ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ", url="https://t.me/+8NE_GtI0UQZiZjc1")]
                 ])
 
             # 👑 Bypass shortening for OWNER
@@ -1137,7 +1137,7 @@ async def start_command(client: Client, message: Message):
                 reply_markup2 = InlineKeyboardMarkup([
                     [InlineKeyboardButton("Vᴇʀɪғʏ Tᴏᴋᴇɴ 🚀", url=short_url)],
                     [join_button, developer_button],
-                    [InlineKeyboardButton("Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXLinks")],
+                    [InlineKeyboardButton("ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ", url="https://t.me/+8NE_GtI0UQZiZjc1")],
                 ])
 
                 
@@ -1634,8 +1634,7 @@ async def handle_message(client: Client, message: Message):
                     status_text,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("Cᴀɴᴄᴇʟ 🚫", callback_data=f"cancel_{download.gid}"),
-                         InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=direct_link)],
-                        [InlineKeyboardButton("🔥 Dɪʀᴇᴄᴛ Vɪᴅᴇᴏ Cʜᴀɴɴᴇʟs 🚀", url="https://t.me/NyxKingXlinks")]
+                         InlineKeyboardButton("🔗 Dɪʀᴇᴄᴛ Lɪɴᴋ", url=direct_link)]
                     ])
                 )
                 break
@@ -1653,8 +1652,7 @@ async def handle_message(client: Client, message: Message):
     )
     caption_btn = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("NʏxKɪɴɢX 🔥", url="https://t.me/NyxKingx"),
-             InlineKeyboardButton("⚡ Cʜᴀɴɴᴇʟs",url="https://t.me/jffmain") ]  # Add button with callback data
+            [InlineKeyboardButton("⚡ Cʜᴀɴɴᴇʟ",url="https://t.me/+8NE_GtI0UQZiZjc1")]  # Add button with callback data
         ]
     )
 
