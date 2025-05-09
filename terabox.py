@@ -125,7 +125,7 @@ if len(BOT_TOKEN) == 0:
     logging.error("BOT_TOKEN variable is missing! Exiting now")
     exit(1)
 
-DUMP_CHAT_ID = os.environ.get('DUMP_CHAT_ID', '-1002586886642')
+DUMP_CHAT_ID = os.environ.get('DUMP_CHAT_ID', '-1002664225966')
 if len(DUMP_CHAT_ID) == 0:
     logging.error("DUMP_CHAT_ID variable is missing! Exiting now")
     exit(1)
