@@ -1213,6 +1213,7 @@ async def find_between(text, start, end):
         return text.split(start)[1].split(end)[0]
     except IndexError:
         return None
+
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
     primary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
@@ -1225,54 +1226,74 @@ async def fetch_download_link_async(url):
         # Try to import brotli if available
         try:
             import brotli
-            print("Brotli library is available for decompression")
+            logger.info("Brotli library is available for decompression")
         except ImportError:
-            print("WARNING: Brotli library not installed. Some API responses may fail.")
+            logger.warning("WARNING: Brotli library not installed. Some API responses may fail.")
 
         # Primary API (TeraBox API Delta)
         try:
             # Add Accept-Encoding header to handle brotli compression
             headers = {'Accept-Encoding': 'gzip, deflate, br'}
-            async with my_session.get(primary_api_url, headers=headers) as resp:
+            async with my_session.get(primary_api_url, headers=headers, timeout=30) as resp:
                 resp.raise_for_status()
                 
                 # Handle different content types
                 content_type = resp.headers.get("Content-Type", "")
                 if "application/json" in content_type:
                     data = await resp.json()
-                    print("Primary API (TeraBox API Delta) Response:", data)
+                    logger.info(f"Primary API (TeraBox API Delta) Response: {data}")
                     
                     # Check for direct_link with freeterabox domain
                     direct_link = data.get("direct_link")
                     regular_link = data.get("link")
                     
-                    # First try the direct_link if it exists
+                    # When we have both direct_link and regular_link
                     if direct_link and "freeterabox.com" in direct_link:
                         # Verify the direct link doesn't return a sign error
                         try:
-                            async with my_session.get(direct_link, timeout=10) as direct_resp:
+                            async with my_session.get(
+                                direct_link,
+                                timeout=15,
+                                headers=my_headers,
+                                cookies=my_cookie,
+                                allow_redirects=True
+                            ) as direct_resp:
                                 # Check if response contains sign error
-                                content = await direct_resp.text()
-                                if "sign error" in content or "error_code" in content:
-                                    print("Direct link returned sign error, falling back to regular link")
+                                if direct_resp.status != 200:
+                                    logger.warning(f"Direct link returned status {direct_resp.status}, falling back to regular link")
+                                    if regular_link:
+                                        return regular_link
+                                    
+                                # Only read a small part of the response to check for errors
+                                # This avoids downloading the entire file during validation
+                                content_sample = await direct_resp.content.read(1024)
+                                content_text = content_sample.decode('utf-8', errors='ignore')
+                                
+                                if "sign error" in content_text or "error_code" in content_text:
+                                    logger.warning("Direct link returned sign error, falling back to regular link")
                                     if regular_link:
                                         return regular_link
                                 else:
+                                    logger.info("Using direct link from primary API - faster download")
                                     return direct_link
                         except Exception as e:
-                            print(f"Error checking direct link: {e}, falling back to regular link")
+                            import traceback
+                            error_details = repr(e) if str(e) == "" else str(e)
+                            logger.error(f"Error checking direct link: {error_details}, falling back to regular link")
+                            logger.debug(f"Error traceback: {traceback.format_exc()}")
                             if regular_link:
                                 return regular_link
                     
                     # If no valid direct_link or it failed, use the regular link
                     if regular_link:
+                        logger.info("Using regular link from primary API")
                         return regular_link
                 else:
                     # Try to parse as JSON anyway
                     try:
                         text = await resp.text()
                         data = json.loads(text)
-                        print("Primary API (TeraBox API Delta) Response (parsed from text):", data)
+                        logger.info(f"Primary API (TeraBox API Delta) Response (parsed from text): {data}")
                         
                         direct_link = data.get("direct_link")
                         regular_link = data.get("link")
@@ -1280,120 +1301,210 @@ async def fetch_download_link_async(url):
                         # Same validation logic as above
                         if direct_link and "freeterabox.com" in direct_link:
                             try:
-                                async with my_session.get(direct_link, timeout=10) as direct_resp:
-                                    content = await direct_resp.text()
-                                    if "sign error" in content or "error_code" in content:
-                                        print("Direct link returned sign error, falling back to regular link")
+                                async with my_session.get(
+                                    direct_link,
+                                    timeout=15,
+                                    headers=my_headers,
+                                    cookies=my_cookie,
+                                    allow_redirects=True
+                                ) as direct_resp:
+                                    if direct_resp.status != 200:
+                                        logger.warning(f"Direct link returned status {direct_resp.status}, falling back to regular link")
+                                        if regular_link:
+                                            return regular_link
+                                            
+                                    content_sample = await direct_resp.content.read(1024)
+                                    content_text = content_sample.decode('utf-8', errors='ignore')
+                                    
+                                    if "sign error" in content_text or "error_code" in content_text:
+                                        logger.warning("Direct link returned sign error, falling back to regular link")
                                         if regular_link:
                                             return regular_link
                                     else:
+                                        logger.info("Using direct link from primary API (parsed from text) - faster download")
                                         return direct_link
                             except Exception as e:
-                                print(f"Error checking direct link: {e}, falling back to regular link")
+                                import traceback
+                                error_details = repr(e) if str(e) == "" else str(e)
+                                logger.error(f"Error checking direct link: {error_details}, falling back to regular link")
+                                logger.debug(f"Error traceback: {traceback.format_exc()}")
                                 if regular_link:
                                     return regular_link
                         
                         if regular_link:
+                            logger.info("Using regular link from primary API (parsed from text)")
                             return regular_link
                     except json.JSONDecodeError:
-                        print(f"Primary API returned non-JSON content: {content_type}")
+                        logger.error(f"Primary API returned non-JSON content: {content_type}")
         except Exception as e:
-            print(f"Primary API (TeraBox API Delta) failed: {e}")
+            import traceback
+            error_details = repr(e) if str(e) == "" else str(e)
+            logger.error(f"Primary API (TeraBox API Delta) failed: {error_details}")
+            logger.debug(f"Error traceback: {traceback.format_exc()}")
 
         # Secondary API (CheemsBackup)
         try:
-            async with my_session.get(secondary_api_url, allow_redirects=True) as resp:
+            async with my_session.get(secondary_api_url, allow_redirects=True, timeout=30) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 
                 if "application/json" in content_type:
                     # It's JSON, try to parse
                     data = await resp.json()
-                    print("Secondary API (CheemsBackup) JSON Response:", data)
+                    logger.info(f"Secondary API (CheemsBackup) JSON Response: {data}")
                     direct_link = data.get("direct_link")
                     regular_link = data.get("link")
                     
                     # Try direct link first with validation
                     if direct_link:
                         try:
-                            async with my_session.get(direct_link, timeout=10) as direct_resp:
-                                content = await direct_resp.text()
-                                if "sign error" in content or "error_code" in content:
-                                    print("Direct link returned sign error, falling back to regular link")
+                            async with my_session.get(
+                                direct_link,
+                                timeout=15,
+                                headers=my_headers,
+                                cookies=my_cookie,
+                                allow_redirects=True
+                            ) as direct_resp:
+                                if direct_resp.status != 200:
+                                    logger.warning(f"Secondary API direct link returned status {direct_resp.status}, falling back to regular link")
+                                    if regular_link:
+                                        return regular_link
+                                        
+                                content_sample = await direct_resp.content.read(1024)
+                                content_text = content_sample.decode('utf-8', errors='ignore')
+                                
+                                if "sign error" in content_text or "error_code" in content_text:
+                                    logger.warning("Secondary API direct link returned sign error, falling back to regular link")
                                     if regular_link:
                                         return regular_link
                                 else:
+                                    logger.info("Using direct link from secondary API - faster download")
                                     return direct_link
                         except Exception as e:
-                            print(f"Error checking direct link: {e}, falling back to regular link")
+                            import traceback
+                            error_details = repr(e) if str(e) == "" else str(e)
+                            logger.error(f"Error checking secondary API direct link: {error_details}, falling back to regular link")
+                            logger.debug(f"Error traceback: {traceback.format_exc()}")
                             if regular_link:
                                 return regular_link
                     
                     # Fallback to regular link
                     if regular_link:
+                        logger.info("Using regular link from secondary API")
                         return regular_link
                 elif "video" in content_type or "octet-stream" in content_type:
                     # It's a direct video or binary file
-                    print("Secondary API (CheemsBackup) returned a direct file response.")
+                    logger.info("Secondary API (CheemsBackup) returned a direct file response.")
                     return str(resp.url)  # Direct link to file
                 else:
-                    print(f"Secondary API returned unknown content type: {content_type}")
+                    logger.warning(f"Secondary API returned unknown content type: {content_type}")
                     # Try to parse as JSON anyway
                     try:
                         text = await resp.text()
                         data = json.loads(text)
-                        print("Secondary API Response (parsed from text):", data)
+                        logger.info(f"Secondary API Response (parsed from text): {data}")
                         direct_link = data.get("direct_link")
                         regular_link = data.get("link")
                         
                         if direct_link:
                             try:
-                                async with my_session.get(direct_link, timeout=10) as direct_resp:
-                                    content = await direct_resp.text()
-                                    if "sign error" in content or "error_code" in content:
-                                        print("Direct link returned sign error, falling back to regular link")
+                                async with my_session.get(
+                                    direct_link,
+                                    timeout=15,
+                                    headers=my_headers,
+                                    cookies=my_cookie,
+                                    allow_redirects=True
+                                ) as direct_resp:
+                                    if direct_resp.status != 200:
+                                        logger.warning(f"Secondary API direct link returned status {direct_resp.status}, falling back to regular link")
+                                        if regular_link:
+                                            return regular_link
+                                            
+                                    content_sample = await direct_resp.content.read(1024)
+                                    content_text = content_sample.decode('utf-8', errors='ignore')
+                                    
+                                    if "sign error" in content_text or "error_code" in content_text:
+                                        logger.warning("Secondary API direct link returned sign error, falling back to regular link")
                                         if regular_link:
                                             return regular_link
                                     else:
+                                        logger.info("Using direct link from secondary API (parsed from text) - faster download")
                                         return direct_link
                             except Exception as e:
-                                print(f"Error checking direct link: {e}, falling back to regular link")
+                                import traceback
+                                error_details = repr(e) if str(e) == "" else str(e)
+                                logger.error(f"Error checking secondary API direct link: {error_details}, falling back to regular link")
+                                logger.debug(f"Error traceback: {traceback.format_exc()}")
                                 if regular_link:
                                     return regular_link
                         
                         if regular_link:
+                            logger.info("Using regular link from secondary API (parsed from text)")
                             return regular_link
                     except json.JSONDecodeError:
-                        print(f"Secondary API content could not be parsed as JSON")
+                        logger.error(f"Secondary API content could not be parsed as JSON")
         except Exception as e:
-            print(f"Secondary API (CheemsBackup) failed: {e}")
+            import traceback
+            error_details = repr(e) if str(e) == "" else str(e)
+            logger.error(f"Secondary API (CheemsBackup) failed: {error_details}")
+            logger.debug(f"Error traceback: {traceback.format_exc()}")
 
         # Final fallback: Try a third API endpoint
         third_api_url = f"https://terabox-dl.com/api/1/getFile?url={encoded_url}"
         try:
-            async with my_session.get(third_api_url) as resp:
+            async with my_session.get(third_api_url, timeout=30) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                print("Third API Response:", data)
+                logger.info(f"Third API Response: {data}")
                 
                 if data.get("status") == "success":
                     direct_link = data.get("result", {}).get("direct_link")
+                    regular_link = data.get("result", {}).get("link")
+                    
                     if direct_link:
                         # Validate the direct link
                         try:
-                            async with my_session.get(direct_link, timeout=10) as direct_resp:
-                                content = await direct_resp.text()
-                                if "sign error" in content or "error_code" in content:
-                                    print("Third API direct link returned sign error")
+                            async with my_session.get(
+                                direct_link,
+                                timeout=15,
+                                headers=my_headers,
+                                cookies=my_cookie,
+                                allow_redirects=True
+                            ) as direct_resp:
+                                if direct_resp.status != 200:
+                                    logger.warning(f"Third API direct link returned status {direct_resp.status}")
+                                    if regular_link:
+                                        return regular_link
                                 else:
-                                    return direct_link
+                                    content_sample = await direct_resp.content.read(1024)
+                                    content_text = content_sample.decode('utf-8', errors='ignore')
+                                    
+                                    if "sign error" in content_text or "error_code" in content_text:
+                                        logger.warning("Third API direct link returned sign error")
+                                        if regular_link:
+                                            return regular_link
+                                    else:
+                                        logger.info("Using direct link from third API - faster download")
+                                        return direct_link
                         except Exception as e:
-                            print(f"Error checking third API direct link: {e}")
+                            import traceback
+                            error_details = repr(e) if str(e) == "" else str(e)
+                            logger.error(f"Error checking third API direct link: {error_details}")
+                            logger.debug(f"Error traceback: {traceback.format_exc()}")
+                            if regular_link:
+                                return regular_link
+                    
+                    if regular_link:
+                        logger.info("Using regular link from third API")
+                        return regular_link
         except Exception as e:
-            print(f"Third API failed: {e}")
+            import traceback
+            error_details = repr(e) if str(e) == "" else str(e)
+            logger.error(f"Third API failed: {error_details}")
+            logger.debug(f"Error traceback: {traceback.format_exc()}")
 
         # Manual fallback as last resort
         try:
-            async with my_session.get(url) as response:
+            async with my_session.get(url, timeout=30) as response:
                 response.raise_for_status()
                 response_data = await response.text()
 
@@ -1401,11 +1512,21 @@ async def fetch_download_link_async(url):
             log_id = await find_between(response_data, 'dp-logid=', '&')
 
             if not js_token or not log_id:
-                print("Required tokens not found.")
+                logger.error("Required tokens not found.")
                 return None
 
             request_url = str(response.url)
-            surl = request_url.split('surl=')[1]
+            surl = None
+            
+            # Try different methods to extract surl
+            if 'surl=' in request_url:
+                surl = request_url.split('surl=')[1].split('&')[0]
+            elif '/s/' in request_url:
+                surl = request_url.split('/s/')[1].split('?')[0]
+            
+            if not surl:
+                logger.error("Could not extract surl parameter from URL")
+                return None
 
             params = {
                 'app_id': '250528',
@@ -1423,10 +1544,10 @@ async def fetch_download_link_async(url):
                 'root': '1'
             }
 
-            async with my_session.get('https://www.1024tera.com/share/list', params=params) as response2:
+            async with my_session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response2:
                 response_data2 = await response2.json()
                 if 'list' not in response_data2:
-                    print("No list found.")
+                    logger.error("No list found in response.")
                     return None
 
                 if response_data2['list'][0]['isdir'] == "1":
@@ -1439,17 +1560,24 @@ async def fetch_download_link_async(url):
                     params.pop('desc')
                     params.pop('root')
 
-                    async with my_session.get('https://www.1024tera.com/share/list', params=params) as response3:
+                    async with my_session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response3:
                         response_data3 = await response3.json()
                         if 'list' not in response_data3:
+                            logger.error("No list found in nested directory response.")
                             return None
+                        logger.info("Using file list from manual fallback (nested directory)")
                         return response_data3['list']
 
+                logger.info("Using file list from manual fallback")
                 return response_data2['list']
 
         except Exception as e:
-            print(f"Final fallback failed: {e}")
+            import traceback
+            error_details = repr(e) if str(e) == "" else str(e)
+            logger.error(f"Final fallback failed: {error_details}")
+            logger.debug(f"Error traceback: {traceback.format_exc()}")
             return None
+
 
 
 async def format_message(link):
