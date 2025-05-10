@@ -1219,48 +1219,51 @@ import urllib.parse
 
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    cheems_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
-    secondary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
+    primary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
+    secondary_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
 
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
 
-        # Primary API (CheemsBackup)
+        # Primary API (TeraBox API Delta)
         try:
-            async with my_session.get(cheems_api_url, allow_redirects=True) as resp:
+            async with my_session.get(primary_api_url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                print("Primary API (TeraBox API Delta) Response:", data)
+                
+                # Check for direct_link with freeterabox domain
+                direct_link = data.get("direct_link")
+                if direct_link and "freeterabox.com" in direct_link:
+                    return direct_link
+                
+                # Fallback to regular link if direct_link not available or not from freeterabox
+                link = data.get("link")
+                if link:
+                    return link
+        except Exception as e:
+            print(f"Primary API (TeraBox API Delta) failed: {e}")
+
+        # Secondary API (CheemsBackup)
+        try:
+            async with my_session.get(secondary_api_url, allow_redirects=True) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 
                 if "application/json" in content_type:
                     # It's JSON, try to parse
                     data = await resp.json()
-                    print("Primary API (CheemsBackup) JSON Response:", data)
+                    print("Secondary API (CheemsBackup) JSON Response:", data)
                     dlink = data.get("direct_link") or data.get("link")
                     if dlink:
                         return dlink
                 elif "video" in content_type or "octet-stream" in content_type:
                     # It's a direct video or binary file
-                    print("Primary API (CheemsBackup) returned a direct file response.")
+                    print("Secondary API (CheemsBackup) returned a direct file response.")
                     return str(resp.url)  # Direct link to file
                 else:
-                    print(f"Primary API returned unknown content type: {content_type}")
+                    print(f"Secondary API returned unknown content type: {content_type}")
         except Exception as e:
-            print(f"Primary API (CheemsBackup) fallback failed: {e}")
-
-        # Secondary API (terabox-pika)
-        try:
-            async with my_session.get(secondary_api_url) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                print("Secondary API (terabox-pika) Response:", data)
-                
-                dlink = data.get("direct_link")
-                if dlink:
-                    return dlink
-                link = data.get("link")
-                if link:
-                    return link
-        except Exception as e:
-            print(f"Secondary API (terabox-pika) fallback failed: {e}")
+            print(f"Secondary API (CheemsBackup) failed: {e}")
 
         # Final fallback: Manual page scraping
         try:
@@ -1321,13 +1324,6 @@ async def fetch_download_link_async(url):
         except Exception as e:
             print(f"Final fallback failed: {e}")
             return None
-
-
-
-
-
-# To call the function and test the code:
-# asyncio.run(fetch_download_link_async('your_url_here'))
 
 async def format_message(link):
     """
