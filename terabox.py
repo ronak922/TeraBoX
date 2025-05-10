@@ -1220,7 +1220,7 @@ import urllib.parse
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
     cheems_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
-    secondary_api_url = f"https://terabox-pika.vercel.app/?url={encoded_url}"
+    secondary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
 
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
