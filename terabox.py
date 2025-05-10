@@ -1213,34 +1213,90 @@ async def find_between(text, start, end):
         return text.split(start)[1].split(end)[0]
     except IndexError:
         return None
-
-import aiohttp
-import urllib.parse
-
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
     primary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
     secondary_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
 
+    # Create a session with appropriate headers and support for brotli compression
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
+        
+        # Try to import brotli if available
+        try:
+            import brotli
+            print("Brotli library is available for decompression")
+        except ImportError:
+            print("WARNING: Brotli library not installed. Some API responses may fail.")
 
         # Primary API (TeraBox API Delta)
         try:
-            async with my_session.get(primary_api_url) as resp:
+            # Add Accept-Encoding header to handle brotli compression
+            headers = {'Accept-Encoding': 'gzip, deflate, br'}
+            async with my_session.get(primary_api_url, headers=headers) as resp:
                 resp.raise_for_status()
-                data = await resp.json()
-                print("Primary API (TeraBox API Delta) Response:", data)
                 
-                # Check for direct_link with freeterabox domain
-                direct_link = data.get("direct_link")
-                if direct_link and "freeterabox.com" in direct_link:
-                    return direct_link
-                
-                # Fallback to regular link if direct_link not available or not from freeterabox
-                link = data.get("link")
-                if link:
-                    return link
+                # Handle different content types
+                content_type = resp.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    data = await resp.json()
+                    print("Primary API (TeraBox API Delta) Response:", data)
+                    
+                    # Check for direct_link with freeterabox domain
+                    direct_link = data.get("direct_link")
+                    regular_link = data.get("link")
+                    
+                    # First try the direct_link if it exists
+                    if direct_link and "freeterabox.com" in direct_link:
+                        # Verify the direct link doesn't return a sign error
+                        try:
+                            async with my_session.get(direct_link, timeout=10) as direct_resp:
+                                # Check if response contains sign error
+                                content = await direct_resp.text()
+                                if "sign error" in content or "error_code" in content:
+                                    print("Direct link returned sign error, falling back to regular link")
+                                    if regular_link:
+                                        return regular_link
+                                else:
+                                    return direct_link
+                        except Exception as e:
+                            print(f"Error checking direct link: {e}, falling back to regular link")
+                            if regular_link:
+                                return regular_link
+                    
+                    # If no valid direct_link or it failed, use the regular link
+                    if regular_link:
+                        return regular_link
+                else:
+                    # Try to parse as JSON anyway
+                    try:
+                        text = await resp.text()
+                        data = json.loads(text)
+                        print("Primary API (TeraBox API Delta) Response (parsed from text):", data)
+                        
+                        direct_link = data.get("direct_link")
+                        regular_link = data.get("link")
+                        
+                        # Same validation logic as above
+                        if direct_link and "freeterabox.com" in direct_link:
+                            try:
+                                async with my_session.get(direct_link, timeout=10) as direct_resp:
+                                    content = await direct_resp.text()
+                                    if "sign error" in content or "error_code" in content:
+                                        print("Direct link returned sign error, falling back to regular link")
+                                        if regular_link:
+                                            return regular_link
+                                    else:
+                                        return direct_link
+                            except Exception as e:
+                                print(f"Error checking direct link: {e}, falling back to regular link")
+                                if regular_link:
+                                    return regular_link
+                        
+                        if regular_link:
+                            return regular_link
+                    except json.JSONDecodeError:
+                        print(f"Primary API returned non-JSON content: {content_type}")
         except Exception as e:
             print(f"Primary API (TeraBox API Delta) failed: {e}")
 
@@ -1253,19 +1309,89 @@ async def fetch_download_link_async(url):
                     # It's JSON, try to parse
                     data = await resp.json()
                     print("Secondary API (CheemsBackup) JSON Response:", data)
-                    dlink = data.get("direct_link") or data.get("link")
-                    if dlink:
-                        return dlink
+                    direct_link = data.get("direct_link")
+                    regular_link = data.get("link")
+                    
+                    # Try direct link first with validation
+                    if direct_link:
+                        try:
+                            async with my_session.get(direct_link, timeout=10) as direct_resp:
+                                content = await direct_resp.text()
+                                if "sign error" in content or "error_code" in content:
+                                    print("Direct link returned sign error, falling back to regular link")
+                                    if regular_link:
+                                        return regular_link
+                                else:
+                                    return direct_link
+                        except Exception as e:
+                            print(f"Error checking direct link: {e}, falling back to regular link")
+                            if regular_link:
+                                return regular_link
+                    
+                    # Fallback to regular link
+                    if regular_link:
+                        return regular_link
                 elif "video" in content_type or "octet-stream" in content_type:
                     # It's a direct video or binary file
                     print("Secondary API (CheemsBackup) returned a direct file response.")
                     return str(resp.url)  # Direct link to file
                 else:
                     print(f"Secondary API returned unknown content type: {content_type}")
+                    # Try to parse as JSON anyway
+                    try:
+                        text = await resp.text()
+                        data = json.loads(text)
+                        print("Secondary API Response (parsed from text):", data)
+                        direct_link = data.get("direct_link")
+                        regular_link = data.get("link")
+                        
+                        if direct_link:
+                            try:
+                                async with my_session.get(direct_link, timeout=10) as direct_resp:
+                                    content = await direct_resp.text()
+                                    if "sign error" in content or "error_code" in content:
+                                        print("Direct link returned sign error, falling back to regular link")
+                                        if regular_link:
+                                            return regular_link
+                                    else:
+                                        return direct_link
+                            except Exception as e:
+                                print(f"Error checking direct link: {e}, falling back to regular link")
+                                if regular_link:
+                                    return regular_link
+                        
+                        if regular_link:
+                            return regular_link
+                    except json.JSONDecodeError:
+                        print(f"Secondary API content could not be parsed as JSON")
         except Exception as e:
             print(f"Secondary API (CheemsBackup) failed: {e}")
 
-        # Final fallback: Manual page scraping
+        # Final fallback: Try a third API endpoint
+        third_api_url = f"https://terabox-dl.com/api/1/getFile?url={encoded_url}"
+        try:
+            async with my_session.get(third_api_url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                print("Third API Response:", data)
+                
+                if data.get("status") == "success":
+                    direct_link = data.get("result", {}).get("direct_link")
+                    if direct_link:
+                        # Validate the direct link
+                        try:
+                            async with my_session.get(direct_link, timeout=10) as direct_resp:
+                                content = await direct_resp.text()
+                                if "sign error" in content or "error_code" in content:
+                                    print("Third API direct link returned sign error")
+                                else:
+                                    return direct_link
+                        except Exception as e:
+                            print(f"Error checking third API direct link: {e}")
+        except Exception as e:
+            print(f"Third API failed: {e}")
+
+        # Manual fallback as last resort
         try:
             async with my_session.get(url) as response:
                 response.raise_for_status()
@@ -1324,6 +1450,7 @@ async def fetch_download_link_async(url):
         except Exception as e:
             print(f"Final fallback failed: {e}")
             return None
+
 
 async def format_message(link):
     """
