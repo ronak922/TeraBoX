@@ -1216,8 +1216,8 @@ async def find_between(text, start, end):
 
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    primary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
-    secondary_api_url = f"https://cheemsbackup.tysonvro.workers.dev/?url={encoded_url}"
+    primary_api_url = f"https://atelegramuser.wuaze.com/api.php?type=terabox&url={encoded_url}"
+    secondary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
 
     # Create a session with appropriate headers and support for brotli compression
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
