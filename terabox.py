@@ -1856,6 +1856,7 @@ async def handle_message(client: Client, message: Message):
                             duration=duration,
                             thumb=thumb_path if thumb_path else None,
                             disable_notification=True,
+                            has_spoiler=True,
                             request_timeout=3600
                         )
                         await app.copy_message(
@@ -1871,6 +1872,7 @@ async def handle_message(client: Client, message: Message):
                             height=height,
                             thumb=thumb_path if thumb_path else None,
                             duration=duration,
+                            has_spoiler=True,
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
@@ -1879,6 +1881,7 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
+                            has_spoiler=True,
                             thumb=thumb_path if thumb_path else None,
                         )
                     os.remove(part)
