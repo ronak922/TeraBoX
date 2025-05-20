@@ -61,9 +61,12 @@ my_headers = {
 }
 
 
-# Cookie and Headers (MY_COOKIE and MY_HEADERS must be in JSON string format)
-cookie_string = os.getenv("MY_COOKIE", "browserid=avLKUlrztrL0C84414VnnfWxLrQ1vJblh4m8WCMxL7TZWIMpPdno52qQb27fk957PE6sUd5VZJ1ATlUe; lang=en; TSID=DLpCxYPseu0EL2J5S2Hf36yFszAufv2G; __bid_n=1964760716d8bd55e14207; g_state={\"i_l\":0}; ndus=Yd6IpupteHuieos8muZScO1E7xfuRT_csD6LBOF3; ndut_fmt=06E6B9E2AC0209A19E5F21774DDD4A03B26FC67DA9EB68D3E790C416E35F3957; csrfToken=XMXR2_q-9p3ckuuFAqeZId9d")
+import os
 
+cookie_string = os.getenv(
+    "MY_COOKIE",
+    "browserid=gxgTsJDjvuI2wdvNlBRpFZOYIzJtN12cgF6XjCDuQksNOdqWz-JOR50qeOVuubNBqmAq1pEKeO3Djrbl; lang=en; ndus=Yd6IpupteHuicMq2MDZuh0pwEwiagw0pGOLW7vdT; PANWEB=1; __bid_n=196474843a82acfeb34207; __stripe_mid=bc37a50c-2b5d-4aa1-a136-b5be925f6310bb7fec; csrfToken=dSPLjVzfiF0nSHZJ5HWvGlLA; __stripe_sid=46b4ff54-f627-4cb3-88a1-53d0f776805e8b62c3; ndut_fmt=F9B12A1E4F4BAFCA09D41CA7949F391EC5EF1D1F03386DC84A32F9A3DEEE61B5"
+)
 # Safe cookie parsing with additional logging for invalid cookies
 if cookie_string:
     try:
@@ -107,7 +110,8 @@ options = {
     "min-split-size": "4M",  # Minimum size of each split
     "split": "16",           # Number of parts to split the file into
     "max-connection-per-server": "16",  # Number of connections per server
-    "max-overall-download-limit": "40M"  # Limit download speed to 40 Mbps
+    "max-overall-download-limit": "0",  # Limit download speed to 40 Mbps
+    "max-download-limit": "0", 
 }
 
 API_ID = os.environ.get('TELEGRAM_API', '')
@@ -298,6 +302,53 @@ async def del_user(chat_id):
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import asyncio
+
+import speedtest
+
+@app.on_message(filters.command("speedtest"))
+async def speedtest_command(client: Client, message: Message):
+    msg = await message.reply_text("⏳ Running speedtest... Please wait.")
+    try:
+        st = speedtest.Speedtest()
+        st.get_best_server()
+        server = st.get_best_server()
+        download_speed = st.download()
+        upload_speed = st.upload()
+        ping = st.results.ping
+        isp = st.config['client']['isp']
+        country = st.config['client']['country']
+        sponsor = server['sponsor']
+        server_name = server['name']
+        server_country = server['country']
+        host = server['host']
+        distance = server['d']
+        timestamp = st.results.timestamp
+        share_url = st.results.share()
+
+        def human_readable_speed(size):
+            if size < 1e6:
+                return f"{size/1e3:.2f} Kbps"
+            elif size < 1e9:
+                return f"{size/1e6:.2f} Mbps"
+            else:
+                return f"{size/1e9:.2f} Gbps"
+
+        result_text = (
+            "⚡️ <b>Speedtest Results</b> ⚡️\n\n"
+            f"🏓 <b>Ping:</b> <code>{ping:.2f} ms</code>\n"
+            f"⬇️ <b>Download:</b> <code>{human_readable_speed(download_speed)}</code>\n"
+            f"⬆️ <b>Upload:</b> <code>{human_readable_speed(upload_speed)}</code>\n"
+            f"🌐 <b>ISP:</b> <code>{isp}</code>\n"
+            f"🌍 <b>Country:</b> <code>{country}</code>\n"
+            f"🏢 <b>Server:</b> <code>{sponsor} ({server_name}, {server_country})</code>\n"
+            f"🔗 <b>Host:</b> <code>{host}</code>\n"
+            f"📏 <b>Distance:</b> <code>{distance:.2f} km</code>\n"
+            f"🕒 <b>Timestamp:</b> <code>{timestamp}</code>\n"
+            f"🖼️ <a href='{share_url}'>Result Image</a>"
+        )
+        await msg.edit_text(result_text, disable_web_page_preview=False)
+    except Exception as e:
+        await msg.edit_text(f"❌ Speedtest failed: <code>{e}</code>")
 
 @app.on_message(filters.private & filters.command('broadcast') & filters.user(ADMINS))
 async def send_text(client: Client, message: Message):
@@ -1216,291 +1267,11 @@ async def find_between(text, start, end):
 
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
-    primary_api_url = f"https://atelegramuser.wuaze.com/api.php?type=terabox&url={encoded_url}"
-    secondary_api_url = f"https://teraboxapi-delta.vercel.app/?url={encoded_url}"
 
     # Create a session with appropriate headers and support for brotli compression
     async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
         my_session.headers.update(my_headers)
         
-        # Try to import brotli if available
-        try:
-            import brotli
-            logger.info("Brotli library is available for decompression")
-        except ImportError:
-            logger.warning("WARNING: Brotli library not installed. Some API responses may fail.")
-
-        # Primary API (TeraBox API Delta)
-        try:
-            # Add Accept-Encoding header to handle brotli compression
-            headers = {'Accept-Encoding': 'gzip, deflate, br'}
-            async with my_session.get(primary_api_url, headers=headers, timeout=30) as resp:
-                resp.raise_for_status()
-                
-                # Handle different content types
-                content_type = resp.headers.get("Content-Type", "")
-                if "application/json" in content_type:
-                    data = await resp.json()
-                    logger.info(f"Primary API (TeraBox API Delta) Response: {data}")
-                    
-                    # Check for direct_link with freeterabox domain
-                    direct_link = data.get("direct_link")
-                    regular_link = data.get("link")
-                    
-                    # When we have both direct_link and regular_link
-                    if direct_link and "freeterabox.com" in direct_link:
-                        # Verify the direct link doesn't return a sign error
-                        try:
-                            async with my_session.get(
-                                direct_link,
-                                timeout=15,
-                                headers=my_headers,
-                                cookies=my_cookie,
-                                allow_redirects=True
-                            ) as direct_resp:
-                                # Check if response contains sign error
-                                if direct_resp.status != 200:
-                                    logger.warning(f"Direct link returned status {direct_resp.status}, falling back to regular link")
-                                    if regular_link:
-                                        return regular_link
-                                    
-                                # Only read a small part of the response to check for errors
-                                # This avoids downloading the entire file during validation
-                                content_sample = await direct_resp.content.read(1024)
-                                content_text = content_sample.decode('utf-8', errors='ignore')
-                                
-                                if "sign error" in content_text or "error_code" in content_text:
-                                    logger.warning("Direct link returned sign error, falling back to regular link")
-                                    if regular_link:
-                                        return regular_link
-                                else:
-                                    logger.info("Using direct link from primary API - faster download")
-                                    return direct_link
-                        except Exception as e:
-                            import traceback
-                            error_details = repr(e) if str(e) == "" else str(e)
-                            logger.error(f"Error checking direct link: {error_details}, falling back to regular link")
-                            logger.debug(f"Error traceback: {traceback.format_exc()}")
-                            if regular_link:
-                                return regular_link
-                    
-                    # If no valid direct_link or it failed, use the regular link
-                    if regular_link:
-                        logger.info("Using regular link from primary API")
-                        return regular_link
-                else:
-                    # Try to parse as JSON anyway
-                    try:
-                        text = await resp.text()
-                        data = json.loads(text)
-                        logger.info(f"Primary API (TeraBox API Delta) Response (parsed from text): {data}")
-                        
-                        direct_link = data.get("direct_link")
-                        regular_link = data.get("link")
-                        
-                        # Same validation logic as above
-                        if direct_link and "freeterabox.com" in direct_link:
-                            try:
-                                async with my_session.get(
-                                    direct_link,
-                                    timeout=15,
-                                    headers=my_headers,
-                                    cookies=my_cookie,
-                                    allow_redirects=True
-                                ) as direct_resp:
-                                    if direct_resp.status != 200:
-                                        logger.warning(f"Direct link returned status {direct_resp.status}, falling back to regular link")
-                                        if regular_link:
-                                            return regular_link
-                                            
-                                    content_sample = await direct_resp.content.read(1024)
-                                    content_text = content_sample.decode('utf-8', errors='ignore')
-                                    
-                                    if "sign error" in content_text or "error_code" in content_text:
-                                        logger.warning("Direct link returned sign error, falling back to regular link")
-                                        if regular_link:
-                                            return regular_link
-                                    else:
-                                        logger.info("Using direct link from primary API (parsed from text) - faster download")
-                                        return direct_link
-                            except Exception as e:
-                                import traceback
-                                error_details = repr(e) if str(e) == "" else str(e)
-                                logger.error(f"Error checking direct link: {error_details}, falling back to regular link")
-                                logger.debug(f"Error traceback: {traceback.format_exc()}")
-                                if regular_link:
-                                    return regular_link
-                        
-                        if regular_link:
-                            logger.info("Using regular link from primary API (parsed from text)")
-                            return regular_link
-                    except json.JSONDecodeError:
-                        logger.error(f"Primary API returned non-JSON content: {content_type}")
-        except Exception as e:
-            import traceback
-            error_details = repr(e) if str(e) == "" else str(e)
-            logger.error(f"Primary API (TeraBox API Delta) failed: {error_details}")
-            logger.debug(f"Error traceback: {traceback.format_exc()}")
-
-        # Secondary API (CheemsBackup)
-        try:
-            async with my_session.get(secondary_api_url, allow_redirects=True, timeout=30) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                
-                if "application/json" in content_type:
-                    # It's JSON, try to parse
-                    data = await resp.json()
-                    logger.info(f"Secondary API (CheemsBackup) JSON Response: {data}")
-                    direct_link = data.get("direct_link")
-                    regular_link = data.get("link")
-                    
-                    # Try direct link first with validation
-                    if direct_link:
-                        try:
-                            async with my_session.get(
-                                direct_link,
-                                timeout=15,
-                                headers=my_headers,
-                                cookies=my_cookie,
-                                allow_redirects=True
-                            ) as direct_resp:
-                                if direct_resp.status != 200:
-                                    logger.warning(f"Secondary API direct link returned status {direct_resp.status}, falling back to regular link")
-                                    if regular_link:
-                                        return regular_link
-                                        
-                                content_sample = await direct_resp.content.read(1024)
-                                content_text = content_sample.decode('utf-8', errors='ignore')
-                                
-                                if "sign error" in content_text or "error_code" in content_text:
-                                    logger.warning("Secondary API direct link returned sign error, falling back to regular link")
-                                    if regular_link:
-                                        return regular_link
-                                else:
-                                    logger.info("Using direct link from secondary API - faster download")
-                                    return direct_link
-                        except Exception as e:
-                            import traceback
-                            error_details = repr(e) if str(e) == "" else str(e)
-                            logger.error(f"Error checking secondary API direct link: {error_details}, falling back to regular link")
-                            logger.debug(f"Error traceback: {traceback.format_exc()}")
-                            if regular_link:
-                                return regular_link
-                    
-                    # Fallback to regular link
-                    if regular_link:
-                        logger.info("Using regular link from secondary API")
-                        return regular_link
-                elif "video" in content_type or "octet-stream" in content_type:
-                    # It's a direct video or binary file
-                    logger.info("Secondary API (CheemsBackup) returned a direct file response.")
-                    return str(resp.url)  # Direct link to file
-                else:
-                    logger.warning(f"Secondary API returned unknown content type: {content_type}")
-                    # Try to parse as JSON anyway
-                    try:
-                        text = await resp.text()
-                        data = json.loads(text)
-                        logger.info(f"Secondary API Response (parsed from text): {data}")
-                        direct_link = data.get("direct_link")
-                        regular_link = data.get("link")
-                        
-                        if direct_link:
-                            try:
-                                async with my_session.get(
-                                    direct_link,
-                                    timeout=15,
-                                    headers=my_headers,
-                                    cookies=my_cookie,
-                                    allow_redirects=True
-                                ) as direct_resp:
-                                    if direct_resp.status != 200:
-                                        logger.warning(f"Secondary API direct link returned status {direct_resp.status}, falling back to regular link")
-                                        if regular_link:
-                                            return regular_link
-                                            
-                                    content_sample = await direct_resp.content.read(1024)
-                                    content_text = content_sample.decode('utf-8', errors='ignore')
-                                    
-                                    if "sign error" in content_text or "error_code" in content_text:
-                                        logger.warning("Secondary API direct link returned sign error, falling back to regular link")
-                                        if regular_link:
-                                            return regular_link
-                                    else:
-                                        logger.info("Using direct link from secondary API (parsed from text) - faster download")
-                                        return direct_link
-                            except Exception as e:
-                                import traceback
-                                error_details = repr(e) if str(e) == "" else str(e)
-                                logger.error(f"Error checking secondary API direct link: {error_details}, falling back to regular link")
-                                logger.debug(f"Error traceback: {traceback.format_exc()}")
-                                if regular_link:
-                                    return regular_link
-                        
-                        if regular_link:
-                            logger.info("Using regular link from secondary API (parsed from text)")
-                            return regular_link
-                    except json.JSONDecodeError:
-                        logger.error(f"Secondary API content could not be parsed as JSON")
-        except Exception as e:
-            import traceback
-            error_details = repr(e) if str(e) == "" else str(e)
-            logger.error(f"Secondary API (CheemsBackup) failed: {error_details}")
-            logger.debug(f"Error traceback: {traceback.format_exc()}")
-
-        # Final fallback: Try a third API endpoint
-        third_api_url = f"https://terabox-dl.com/api/1/getFile?url={encoded_url}"
-        try:
-            async with my_session.get(third_api_url, timeout=30) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                logger.info(f"Third API Response: {data}")
-                
-                if data.get("status") == "success":
-                    direct_link = data.get("result", {}).get("direct_link")
-                    regular_link = data.get("result", {}).get("link")
-                    
-                    if direct_link:
-                        # Validate the direct link
-                        try:
-                            async with my_session.get(
-                                direct_link,
-                                timeout=15,
-                                headers=my_headers,
-                                cookies=my_cookie,
-                                allow_redirects=True
-                            ) as direct_resp:
-                                if direct_resp.status != 200:
-                                    logger.warning(f"Third API direct link returned status {direct_resp.status}")
-                                    if regular_link:
-                                        return regular_link
-                                else:
-                                    content_sample = await direct_resp.content.read(1024)
-                                    content_text = content_sample.decode('utf-8', errors='ignore')
-                                    
-                                    if "sign error" in content_text or "error_code" in content_text:
-                                        logger.warning("Third API direct link returned sign error")
-                                        if regular_link:
-                                            return regular_link
-                                    else:
-                                        logger.info("Using direct link from third API - faster download")
-                                        return direct_link
-                        except Exception as e:
-                            import traceback
-                            error_details = repr(e) if str(e) == "" else str(e)
-                            logger.error(f"Error checking third API direct link: {error_details}")
-                            logger.debug(f"Error traceback: {traceback.format_exc()}")
-                            if regular_link:
-                                return regular_link
-                    
-                    if regular_link:
-                        logger.info("Using regular link from third API")
-                        return regular_link
-        except Exception as e:
-            import traceback
-            error_details = repr(e) if str(e) == "" else str(e)
-            logger.error(f"Third API failed: {error_details}")
-            logger.debug(f"Error traceback: {traceback.format_exc()}")
 
         # Manual fallback as last resort
         try:
@@ -1615,6 +1386,14 @@ def truncate_filename(filename, max_length=40):
     return truncated
 
 
+async def download_thumbnail(url, save_path):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                with open(save_path, "wb") as f:
+                    f.write(await resp.read())
+                return save_path
+    return None
 
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
@@ -1770,6 +1549,14 @@ async def handle_message(client: Client, message: Message):
     start_time = time.time()  # Start time to measure how long the process takes
     link_data = await fetch_download_link_async(message.text)
 
+    thumb_url = None
+    if isinstance(link_data, list) and link_data:
+        thumbs = link_data[0].get("thumbs", {})
+
+        thumb_url = thumbs.get("url3") or thumbs.get("url2") or thumbs.get("url1") or thumbs.get("icon")
+
+    
+
     print("Link Data:", link_data)
 
     if not link_data:
@@ -1871,7 +1658,7 @@ async def handle_message(client: Client, message: Message):
             f"📛 <code><b>{truncated_name}</b></code>\n"
             f"🎲 <code><b>{progress:.2f}%</b></code>\n"
             f"🐾 <code> <b>{format_size(download.completed_length)}</b> / {format_size(download.total_length)}</code>\n"
-            f"<code>{speed_icon} <b>{format_size(speed)}/s</b> | ⏳ ETA: <b>{eta}</b></code>\n"
+            f"{speed_icon} <b>{format_size(speed)}/s</b> | ⏳ ETA: <b>{eta}</b>\n"
             f" <i>{current_status}</i>\n"
             f"👤 <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
             )
@@ -2007,6 +1794,8 @@ async def handle_message(client: Client, message: Message):
         upload_as_video = True
         duration, width, height = 0, 0, 0
 
+        thumb_path = None
+
         if str(file_path).upper().endswith(("M4V", "MP4", "MOV", "FLV", "WMV", "3GP", "MPEG", "WEBM", "MKV")):
    
             try:
@@ -2049,6 +1838,10 @@ async def handle_message(client: Client, message: Message):
                     )
 
                     width, height = await get_video_info(part)
+                    thumb_path = None
+                    if thumb_url:
+                        thumb_path = f"/tmp/terabox_thumb_{user_id}.jpg"
+                        await download_thumbnail(thumb_url, thumb_path)
           
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
@@ -2061,6 +1854,7 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
+                            thumb=thumb_path if thumb_path else None,
                             disable_notification=True,
                             request_timeout=3600
                         )
@@ -2075,6 +1869,7 @@ async def handle_message(client: Client, message: Message):
                             progress=upload_progress,
                             width=width,
                             height=height,
+                            thumb=thumb_path if thumb_path else None,
                             duration=duration,
                         )
                         await client.send_video(
@@ -2084,6 +1879,7 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
+                            thumb=thumb_path if thumb_path else None,
                         )
                     os.remove(part)
             finally:
@@ -2109,6 +1905,8 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
+                        thumb=thumb_path if thumb_path else None,
+                        has_spoiler=True,
                     )
                     try:
                         await app.copy_message(
@@ -2125,6 +1923,8 @@ async def handle_message(client: Client, message: Message):
                                 width=width,
                                 height=height,
                                 duration=duration,
+                                thumb=thumb_path if thumb_path else None,
+                                has_spoiler=True,
                             )
                         except Exception as e2:
                             logger.error(f"Error sending video: {e2}")
@@ -2135,6 +1935,8 @@ async def handle_message(client: Client, message: Message):
                                 width=width,
                                 height=height,
                                 duration=duration,
+                                has_spoiler=True,
+                                thumb=thumb_path if thumb_path else None,
                             )
                 except Exception as e:
                     logger.error(f"Error sending video: {e}")
@@ -2146,6 +1948,8 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
+                        has_spoiler=True,
+                        thumb=thumb_path if thumb_path else None,
                     )
             else:
                 try:
@@ -2157,6 +1961,8 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
+                        has_spoiler=True,
+                        thumb=thumb_path if thumb_path else None,
                     )
                     try:
                         await client.send_video(
@@ -2166,6 +1972,8 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
+                            has_spoiler=True,
+                            thumb=thumb_path if thumb_path else None,
                         )
                     except Exception as e:
                         logger.error(f"Failed to send video using file_id: {e}")
@@ -2176,6 +1984,8 @@ async def handle_message(client: Client, message: Message):
                             width=width,
                             height=height,
                             duration=duration,
+                            has_spoiler=True,
+                            thumb=thumb_path if thumb_path else None,
                         )
                 except Exception as e:
                     logger.error(f"Failed to send video: {e}")
@@ -2187,10 +1997,15 @@ async def handle_message(client: Client, message: Message):
                         width=width,
                         height=height,
                         duration=duration,
+                        has_spoiler=True,
+                        thumb=thumb_path if thumb_path else None,
                     )
 
         if os.path.exists(file_path):
             os.remove(file_path)
+
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
 
         await message.reply_sticker("CAACAgUAAxkBAAEBOQVoBLWRUSRCieoGNbvQ5cJ1U8qtWgACKg0AAprJqVcDgujJs5TjwTYE")
         # await message.reply_text("✅ Uᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ! Eɴᴊᴏʏ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ. 😎")

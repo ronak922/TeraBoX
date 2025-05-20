@@ -11,3 +11,4 @@ aiohttp
 ffmpeg-python  # Python wrapper for FFmpeg
 imageio[ffmpeg]  # FFmpeg plugin for imageio (if needed for video processing)
 brotli
+speedtest-cli
