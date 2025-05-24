@@ -40,52 +40,6 @@ ADMINS = [OWNER_ID]  # Add more admin IDs as needed
 
 logger = logging.getLogger(__name__)
 
-# Add this right after your imports and before any other code
-
-# Global variables for premium account detection
-IS_PREMIUM_ACCOUNT = False
-
-# Initialize premium detection early
-def detect_premium_from_cookies():
-    """Early premium detection based on cookies"""
-    global IS_PREMIUM_ACCOUNT
-    
-    cookie_string = os.getenv("MY_COOKIE", "")
-    if not cookie_string:
-        IS_PREMIUM_ACCOUNT = False
-        return
-    
-    try:
-        # Parse cookies quickly
-        cookies = {}
-        for item in cookie_string.split(";"):
-            item = item.strip()
-            if "=" in item:
-                key, value = item.split("=", 1)
-                cookies[key.strip()] = value.strip()
-        
-        # Quick premium detection
-        premium_indicators = [
-            'TSID' in cookies,
-            'csrfToken' in cookies,
-            len(cookies.get('browserid', '')) > 50,
-            'ndut_fmt' in cookies
-        ]
-        
-        IS_PREMIUM_ACCOUNT = sum(premium_indicators) >= 3
-        
-        if IS_PREMIUM_ACCOUNT:
-            logger.info("🚀 PREMIUM COOKIES DETECTED!")
-        else:
-            logger.info("📝 Standard cookies detected")
-            
-    except Exception as e:
-        logger.error(f"Error in early premium detection: {e}")
-        IS_PREMIUM_ACCOUNT = False
-
-# Call early detection
-detect_premium_from_cookies()
-
 
 # Headers setup
 my_headers_raw = os.getenv("MY_HEADERS", "{}")
@@ -148,83 +102,17 @@ aria2 = Aria2API(
     )
 )
 
-# Premium optimized aria2 options
-# Enhanced aria2 options based on account type
-def get_aria2_options():
-    """Get aria2 options based on account type"""
-    if IS_PREMIUM_ACCOUNT:
-        return {
-            # Premium settings for maximum speed
-            "split": "64",
-            "max-connection-per-server": "64",
-            "min-split-size": "1M",
-            "max-concurrent-downloads": "10",
-            "max-tries": "100",
-            "retry-wait": "1",
-            "timeout": "60",
-            "connect-timeout": "30",
-            "disk-cache": "128M",
-            "file-allocation": "prealloc",
-            "continue": "true",
-            "allow-overwrite": "true",
-            "max-overall-download-limit": "0",
-            "max-download-limit": "0",
-            "piece-length": "1M",
-            "stream-piece-selector": "inorder",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "referer": "https://www.terabox.com/",
-            "check-certificate": "false",
-            "reuse-uri": "true"
-        }
-    else:
-        return {
-            # Standard settings for free accounts
-            "max-tries": "50",
-            "retry-wait": "3",
-            "continue": "true",
-            "allow-overwrite": "true",
-            "min-split-size": "4M",
-            "split": "16",
-            "max-connection-per-server": "16",
-            "max-overall-download-limit": "0",
-            "max-download-limit": "0",
-            "disk-cache": "32M"
-        }
-
-# Get the appropriate options
-options = get_aria2_options()
-
-# Log the configuration being used
-if IS_PREMIUM_ACCOUNT:
-    logger.info("🚀 Using PREMIUM download configuration")
-else:
-    logger.info("📝 Using STANDARD download configuration")
-
-
-# Enhanced headers for premium downloads
-premium_headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-    "DNT": "1",
-    "Referer": "https://www.terabox.com/",
-    "Origin": "https://www.terabox.com"
+options = {
+    "max-tries": "50",
+    "retry-wait": "3",
+    "continue": "true",
+    "allow-overwrite": "true",
+    "min-split-size": "4M",  # Minimum size of each split
+    "split": "16",           # Number of parts to split the file into
+    "max-connection-per-server": "16",  # Number of connections per server
+    "max-overall-download-limit": "0",  # Limit download speed to 40 Mbps
+    "max-download-limit": "0", 
 }
-
-# Use premium headers if premium account
-if IS_PREMIUM_ACCOUNT:
-    my_headers.update(premium_headers)
-    logger.info("🚀 Using premium headers")
-
-
 
 API_ID = os.environ.get('TELEGRAM_API', '')
 if len(API_ID) == 0:
@@ -1550,29 +1438,6 @@ async def update_status_message(status_message, text, reply_markup=None):
 
 
 
-@app.on_message(filters.command("testspeed"))
-async def test_download_speed(client: Client, message: Message):
-    """Test download speed with current configuration"""
-    
-    test_msg = await message.reply_text("🧪 Testing download configuration...")
-    
-    try:
-        # Show current configuration
-        config_info = (
-            f"🔧 **Current Configuration:**\n\n"
-            f"💎 **Account:** {'🚀 PREMIUM' if IS_PREMIUM_ACCOUNT else '📝 STANDARD'}\n"
-            f"🔗 **Connections:** {options.get('max-connection-per-server', '16')}\n"
-            f"✂️ **Splits:** {options.get('split', '16')}\n"
-            f"💾 **Cache:** {options.get('disk-cache', '32M')}\n"
-            f"⚡ **Min Split:** {options.get('min-split-size', '4M')}\n\n"
-            f"Ready for high-speed downloads! 🚀"
-        )
-        
-        await test_msg.edit_text(config_info)
-        
-    except Exception as e:
-        await test_msg.edit_text(f"❌ Test failed: {str(e)}")
-
 
 # Add this callback handler to handle cancel button clicks
 @app.on_callback_query(filters.regex(r'^cancel_(.+)$'))
@@ -1956,864 +1821,88 @@ async def check_cookie_status(client: Client, message: Message):
 
 
 async def fetch_download_link_async(url):
-    """
-    Enhanced TeraBox link fetcher optimized for premium accounts
-    Attempts multiple methods to get the fastest download links
-    """
     encoded_url = urllib.parse.quote(url)
-    
-    # Enhanced session configuration for premium
-    connector_config = {
-        'ssl': False,
-        'limit': 100,
-        'limit_per_host': 50,
-        'ttl_dns_cache': 300,
-        'use_dns_cache': True,
-    }
-    
-    timeout_config = aiohttp.ClientTimeout(
-        total=60,
-        connect=15,
-        sock_read=30
-    )
-    
-    async with aiohttp.ClientSession(
-        cookies=my_cookie,
-        timeout=timeout_config,
-        connector=aiohttp.TCPConnector(**connector_config)
-    ) as my_session:
-        
-        # Enhanced headers for premium access
-        premium_headers = my_headers.copy()
-        if IS_PREMIUM_ACCOUNT:
-            premium_headers.update({
-                'X-Requested-With': 'XMLHttpRequest',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-                'Priority': 'u=1, i',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            })
-        
-        my_session.headers.update(premium_headers)
-        
-        # Method 1: Premium API endpoint (fastest for premium users)
-        if IS_PREMIUM_ACCOUNT:
-            try:
-                logger.info("🚀 Attempting premium API method...")
-                premium_result = await fetch_premium_api_method(my_session, url)
-                if premium_result:
-                    logger.info("✅ Premium API method successful!")
-                    return await optimize_download_links(premium_result)
-            except Exception as e:
-                logger.warning(f"Premium API method failed: {e}")
-        
-        # Method 2: Enhanced standard method with optimizations
-        try:
-            logger.info("📡 Attempting enhanced standard method...")
-            
-            # Create tasks properly
-            tasks = []
-            
-            # Primary request
-            tasks.append(asyncio.create_task(fetch_with_method(my_session, url, "primary")))
-            
-            # Alternative endpoints for premium users
-            if IS_PREMIUM_ACCOUNT:
-                alt_urls = [
-                    url.replace('terabox.com', '1024tera.com'),
-                    url.replace('terabox.com', 'teraboxapp.com'),
-                    url.replace('terabox.com', 'nephobox.com')
-                ]
-                
-                for alt_url in alt_urls:
-                    if alt_url != url:  # Avoid duplicate URLs
-                        tasks.append(asyncio.create_task(fetch_with_method(my_session, alt_url, "alternative")))
-            
-            # Fixed concurrent execution
-            try:
-                # Wait for first successful result
-                done, pending = await asyncio.wait(
-                    tasks, 
-                    return_when=asyncio.FIRST_COMPLETED,
-                    timeout=45
-                )
-                
-                # Cancel pending tasks
-                for task in pending:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-                
-                # Process completed tasks
-                for task in done:
-                    try:
-                        result = await task
-                        if result:
-                            logger.info("✅ Enhanced method successful!")
-                            return await optimize_download_links(result)
-                    except Exception as e:
-                        logger.debug(f"Task failed: {e}")
-                        continue
-                        
-            except asyncio.TimeoutError:
-                logger.warning("⏰ Enhanced method timed out")
-                # Cancel all tasks
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-            except Exception as e:
-                logger.error(f"Enhanced method failed: {e}")
-                # Cancel all tasks
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                        
-        except Exception as e:
-            logger.error(f"Enhanced method setup failed: {e}")
-        
-        # Method 3: Fallback with original implementation
-        try:
-            logger.info("🔄 Attempting fallback method...")
-            return await fetch_fallback_method(my_session, url)
-        except Exception as e:
-            logger.error(f"Fallback method failed: {e}")
-            return None
 
-async def fetch_with_method(session, url, method_name):
-    """
-    Fetch with specific method and timeout
-    """
-    try:
-        async with session.get(url, timeout=25) as response:
-            if response.status == 200:
+    # Create a session with appropriate headers and support for brotli compression
+    async with aiohttp.ClientSession(cookies=my_cookie) as my_session:
+        my_session.headers.update(my_headers)
+        
+
+        # Manual fallback as last resort
+        try:
+            async with my_session.get(url, timeout=30) as response:
+                response.raise_for_status()
                 response_data = await response.text()
-                
-                # Extract tokens
-                js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-                log_id = await find_between(response_data, 'dp-logid=', '&')
-                
-                if not js_token or not log_id:
-                    return None
-                
-                surl = extract_surl_from_url(str(response.url))
-                if not surl:
-                    return None
-                
-                # Build API request
-                api_url = 'https://www.1024tera.com/share/list'
-                
-                params = {
-                    'app_id': '250528',
-                    'web': '1',
-                    'channel': 'dubox',
-                    'clienttype': '0',
-                    'jsToken': js_token,
-                    'dplogid': log_id,
-                    'page': '1',
-                    'num': '30' if IS_PREMIUM_ACCOUNT else '20',
-                    'order': 'time',
-                    'desc': '1',
-                    'site_referer': str(response.url),
-                    'shorturl': surl,
-                    'root': '1'
-                }
-                
-                async with session.get(api_url, params=params, timeout=25) as list_response:
-                    if list_response.status == 200:
-                        data = await list_response.json()
-                        if 'list' in data and data['list']:
-                            return await process_file_list(session, data['list'], params, log_id)
-                
-        return None
-        
-    except Exception as e:
-        logger.debug(f"Method {method_name} failed: {e}")
-        return None
 
-async def process_file_list(session, file_list, params, log_id):
-    """
-    Process file list and handle directories
-    """
-    try:
-        first_item = file_list[0]
-        
-        # Handle directory
-        if first_item.get('isdir') == "1":
-            dir_params = params.copy()
-            dir_params.update({
-                'dir': first_item['path'],
-                'order': 'asc',
-                'by': 'name',
-                'dplogid': log_id
-            })
-            dir_params.pop('desc', None)
-            dir_params.pop('root', None)
-            
-            api_url = 'https://www.1024tera.com/share/list'
-            async with session.get(api_url, params=dir_params, timeout=30) as dir_response:
-                if dir_response.status == 200:
-                    dir_data = await dir_response.json()
-                    if 'list' in dir_data and dir_data['list']:
-                        logger.info(f"📁 Directory processed with {len(dir_data['list'])} files")
-                        return dir_data['list']
-        
-        logger.info(f"📄 Direct file list with {len(file_list)} files")
-        return file_list
-        
-    except Exception as e:
-        logger.error(f"Error processing file list: {e}")
-        return file_list
+            js_token = await find_between(response_data, 'fn%28%22', '%22%29')
+            log_id = await find_between(response_data, 'dp-logid=', '&')
 
-async def fetch_fallback_method(session, url):
-    """
-    Fallback method using the original implementation
-    """
-    try:
-        logger.info("🔄 Using original fallback method...")
-        
-        # Get the main page
-        async with session.get(url, timeout=30) as response:
-            response.raise_for_status()
-            response_data = await response.text()
-
-        # Extract required tokens
-        js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-        log_id = await find_between(response_data, 'dp-logid=', '&')
-
-        if not js_token or not log_id:
-            logger.error("Required tokens not found in fallback method.")
-            return None
-
-        request_url = str(response.url)
-        surl = None
-        
-        # Try different methods to extract surl
-        if 'surl=' in request_url:
-            surl = request_url.split('surl=')[1].split('&')[0]
-        elif '/s/' in request_url:
-            surl = request_url.split('/s/')[1].split('?')[0]
-        
-        if not surl:
-            logger.error("Could not extract surl parameter from URL in fallback")
-            return None
-
-        # Build API parameters
-        params = {
-            'app_id': '250528',
-            'web': '1',
-            'channel': 'dubox',
-            'clienttype': '0',
-            'jsToken': js_token,
-            'dplogid': log_id,
-            'page': '1',
-            'num': '20',
-            'order': 'time',
-            'desc': '1',
-            'site_referer': request_url,
-            'shorturl': surl,
-            'root': '1'
-        }
-
-        # Make API request
-        async with session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response2:
-            response_data2 = await response2.json()
-            if 'list' not in response_data2:
-                logger.error("No list found in fallback response.")
+            if not js_token or not log_id:
+                logger.error("Required tokens not found.")
                 return None
 
-            # Handle directory if needed
-            if response_data2['list'][0]['isdir'] == "1":
-                params.update({
-                    'dir': response_data2['list'][0]['path'],
-                    'order': 'asc',
-                    'by': 'name',
-                    'dplogid': log_id
-                })
-                params.pop('desc')
-                params.pop('root')
-
-                async with session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response3:
-                    response_data3 = await response3.json()
-                    if 'list' not in response_data3:
-                        logger.error("No list found in nested directory response.")
-                        return None
-                    logger.info("Using file list from fallback method (nested directory)")
-                    return response_data3['list']
-
-            logger.info("Using file list from fallback method")
-            return response_data2['list']
-
-    except Exception as e:
-        import traceback
-        error_details = repr(e) if str(e) == "" else str(e)
-        logger.error(f"Fallback method failed: {error_details}")
-        logger.debug(f"Error traceback: {traceback.format_exc()}")
-        return None
-
-
-async def fetch_premium_api_method(session, url):
-    """
-    Premium-specific API method for faster link fetching
-    """
-    try:
-        # Extract share info from URL
-        surl = extract_surl_from_url(url)
-        if not surl:
-            return None
-        
-        # Premium API endpoints
-        api_endpoints = [
-            "https://www.terabox.com/api/share/list",
-            "https://www.1024tera.com/api/share/list", 
-            "https://premium.terabox.com/api/share/list"
-        ]
-        
-        for api_url in api_endpoints:
-            try:
-                # Get page first for tokens
-                async with session.get(url, timeout=20) as response:
-                    if response.status != 200:
-                        continue
-                        
-                    response_data = await response.text()
-                    
-                # Extract required tokens
-                js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-                log_id = await find_between(response_data, 'dp-logid=', '&')
-                
-                if not js_token or not log_id:
-                    continue
-                
-                # Premium API parameters
-                params = {
-                    'app_id': '250528',
-                    'web': '1',
-                    'channel': 'dubox',
-                    'clienttype': '0',
-                    'jsToken': js_token,
-                    'dplogid': log_id,
-                    'page': '1',
-                    'num': '50',  # More items for premium
-                    'order': 'time',
-                    'desc': '1',
-                    'site_referer': str(response.url),
-                    'shorturl': surl,
-                    'root': '1',
-                    'premium': '1' if IS_PREMIUM_ACCOUNT else '0'
-                }
-                
-                # Make API request
-                async with session.get(api_url, params=params, timeout=30) as api_response:
-                    if api_response.status == 200:
-                        try:
-                            data = await api_response.json()
-                            if 'list' in data and data['list']:
-                                logger.info(f"🚀 Premium API success with {len(data['list'])} files")
-                                return await process_file_list(session, data['list'], params, log_id)
-                        except json.JSONDecodeError:
-                            continue
-                            
-            except Exception as e:
-                logger.debug(f"Premium API endpoint {api_url} failed: {e}")
-                continue
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"Premium API method error: {e}")
-        return None
-
-
-async def fetch_download_link_async(url):
-    """
-    Enhanced TeraBox link fetcher optimized for premium accounts
-    Attempts multiple methods to get the fastest download links
-    """
-    encoded_url = urllib.parse.quote(url)
-    
-    # Enhanced session configuration for premium
-    connector_config = {
-        'ssl': False,
-        'limit': 100,
-        'limit_per_host': 50,
-        'ttl_dns_cache': 300,
-        'use_dns_cache': True,
-    }
-    
-    timeout_config = aiohttp.ClientTimeout(
-        total=60,
-        connect=15,
-        sock_read=30
-    )
-    
-    async with aiohttp.ClientSession(
-        cookies=my_cookie,
-        timeout=timeout_config,
-        connector=aiohttp.TCPConnector(**connector_config)
-    ) as my_session:
-        
-        # Enhanced headers for premium access
-        premium_headers = my_headers.copy()
-        if IS_PREMIUM_ACCOUNT:
-            premium_headers.update({
-                'X-Requested-With': 'XMLHttpRequest',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-                'Priority': 'u=1, i',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            })
-        
-        my_session.headers.update(premium_headers)
-        
-        # Method 1: Premium API endpoint (fastest for premium users)
-        if IS_PREMIUM_ACCOUNT:
-            try:
-                logger.info("🚀 Attempting premium API method...")
-                premium_result = await fetch_premium_api_method(my_session, url)
-                if premium_result:
-                    logger.info("✅ Premium API method successful!")
-                    return await optimize_download_links(premium_result)
-            except Exception as e:
-                logger.warning(f"Premium API method failed: {e}")
-        
-        # Method 2: Enhanced standard method with optimizations
-        try:
-            logger.info("📡 Attempting enhanced standard method...")
+            request_url = str(response.url)
+            surl = None
             
-            # Create tasks properly
-            tasks = []
+            # Try different methods to extract surl
+            if 'surl=' in request_url:
+                surl = request_url.split('surl=')[1].split('&')[0]
+            elif '/s/' in request_url:
+                surl = request_url.split('/s/')[1].split('?')[0]
             
-            # Primary request
-            tasks.append(asyncio.create_task(fetch_with_method(my_session, url, "primary")))
-            
-            # Alternative endpoints for premium users
-            if IS_PREMIUM_ACCOUNT:
-                alt_urls = [
-                    url.replace('terabox.com', '1024tera.com'),
-                    url.replace('terabox.com', 'teraboxapp.com'),
-                    url.replace('terabox.com', 'nephobox.com')
-                ]
-                
-                for alt_url in alt_urls:
-                    tasks.append(asyncio.create_task(fetch_with_method(my_session, alt_url, "alternative")))
-            
-            # Fixed concurrent execution
-            try:
-                # Wait for first successful result
-                done, pending = await asyncio.wait(
-                    tasks, 
-                    return_when=asyncio.FIRST_COMPLETED,
-                    timeout=45
-                )
-                
-                # Cancel pending tasks
-                for task in pending:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-                
-                # Process completed tasks
-                for task in done:
-                    try:
-                        result = await task
-                        if result:
-                            logger.info("✅ Enhanced method successful!")
-                            return await optimize_download_links(result)
-                    except Exception as e:
-                        logger.debug(f"Task failed: {e}")
-                        continue
-                        
-            except asyncio.TimeoutError:
-                logger.warning("⏰ Enhanced method timed out")
-                # Cancel all tasks
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-            except Exception as e:
-                logger.error(f"Enhanced method failed: {e}")
-                # Cancel all tasks
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                        
-        except Exception as e:
-            logger.error(f"Enhanced method setup failed: {e}")
-        
-        # Method 3: Fallback with original implementation
-        try:
-            logger.info("🔄 Attempting fallback method...")
-            return await fetch_fallback_method(my_session, url)
-        except Exception as e:
-            logger.error(f"All methods failed: {e}")
-            return None
+            if not surl:
+                logger.error("Could not extract surl parameter from URL")
+                return None
 
-async def fetch_with_method(session, url, method_name):
-    """
-    Fetch with specific method and timeout
-    """
-    try:
-        async with session.get(url, timeout=25) as response:
-            if response.status == 200:
-                response_data = await response.text()
-                
-                # Extract tokens
-                js_token = await find_between(response_data, 'fn%28%22', '%22%29')
-                log_id = await find_between(response_data, 'dp-logid=', '&')
-                
-                if not js_token or not log_id:
+            params = {
+                'app_id': '250528',
+                'web': '1',
+                'channel': 'dubox',
+                'clienttype': '0',
+                'jsToken': js_token,
+                'dplogid': log_id,
+                'page': '1',
+                'num': '20',
+                'order': 'time',
+                'desc': '1',
+                'site_referer': request_url,
+                'shorturl': surl,
+                'root': '1'
+            }
+
+            async with my_session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response2:
+                response_data2 = await response2.json()
+                if 'list' not in response_data2:
+                    logger.error("No list found in response.")
                     return None
-                
-                surl = extract_surl_from_url(str(response.url))
-                if not surl:
-                    return None
-                
-                # Build API request
-                api_url = 'https://www.1024tera.com/share/list'
-                
-                params = {
-                    'app_id': '250528',
-                    'web': '1',
-                    'channel': 'dubox',
-                    'clienttype': '0',
-                    'jsToken': js_token,
-                    'dplogid': log_id,
-                    'page': '1',
-                    'num': '30' if IS_PREMIUM_ACCOUNT else '20',
-                    'order': 'time',
-                    'desc': '1',
-                    'site_referer': str(response.url),
-                    'shorturl': surl,
-                    'root': '1'
-                }
-                
-                async with session.get(api_url, params=params, timeout=25) as list_response:
-                    if list_response.status == 200:
-                        data = await list_response.json()
-                        if 'list' in data and data['list']:
-                            return await process_file_list(session, data['list'], params, log_id)
-                
-        return None
-        
-    except Exception as e:
-        logger.debug(f"Method {method_name} failed: {e}")
-        return None
 
-async def process_file_list(session, file_list, params, log_id):
-    """
-    Process file list and handle directories
-    """
-    try:
-        first_item = file_list[0]
-        
-        # Handle directory
-        if first_item.get('isdir') == "1":
-            dir_params = params.copy()
-            dir_params.update({
-                'dir': first_item['path'],
-                'order': 'asc',
-                'by': 'name',
-                'dplogid': log_id
-            })
-            dir_params.pop('desc', None)
-            dir_params.pop('root', None)
-            
-            api_url = 'https://www.1024tera.com/share/list'
-            async with session.get(api_url, params=dir_params, timeout=30) as dir_response:
-                if dir_response.status == 200:
-                    dir_data = await dir_response.json()
-                    if 'list' in dir_data and dir_data['list']:
-                        logger.info(f"📁 Directory processed with {len(dir_data['list'])} files")
-                        return dir_data['list']
-        
-        logger.info(f"📄 Direct file list with {len(file_list)} files")
-        return file_list
-        
-    except Exception as e:
-        logger.error(f"Error processing file list: {e}")
-        return file_list
+                if response_data2['list'][0]['isdir'] == "1":
+                    params.update({
+                        'dir': response_data2['list'][0]['path'],
+                        'order': 'asc',
+                        'by': 'name',
+                        'dplogid': log_id
+                    })
+                    params.pop('desc')
+                    params.pop('root')
 
-def extract_surl_from_url(url):
-    """
-    Enhanced surl extraction with multiple patterns
-    """
-    try:
-        # Method 1: URL parameter
-        if 'surl=' in url:
-            return url.split('surl=')[1].split('&')[0]
-        
-        # Method 2: Path-based
-        if '/s/' in url:
-            return url.split('/s/')[1].split('?')[0].split('/')[0]
-        
-        # Method 3: Alternative patterns
-        patterns = [
-            r'/s/([^/?]+)',
-            r'surl=([^&]+)',
-            r'/share/link\?surl=([^&]+)',
-            r'#surl=([^&]+)'
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                return match.group(1)
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"Error extracting surl: {e}")
-        return None
+                    async with my_session.get('https://www.1024tera.com/share/list', params=params, timeout=30) as response3:
+                        response_data3 = await response3.json()
+                        if 'list' not in response_data3:
+                            logger.error("No list found in nested directory response.")
+                            return None
+                        logger.info("Using file list from manual fallback (nested directory)")
+                        return response_data3['list']
 
-async def optimize_download_links(file_list):
-    """
-    Optimize download links for premium accounts
-    """
-    if not file_list or not IS_PREMIUM_ACCOUNT:
-        return file_list
-    
-    try:
-        optimized_list = []
-        
-        for file_item in file_list:
-            if 'dlink' in file_item:
-                original_link = file_item['dlink']
-                
-                # Try to get premium CDN links
-                optimized_link = await get_premium_cdn_link(original_link)
-                
-                if optimized_link != original_link:
-                    file_item['dlink'] = optimized_link
-                    file_item['optimized'] = True
-                    logger.info(f"🚀 Optimized link for: {file_item.get('server_filename', 'file')}")
-                
-            optimized_list.append(file_item)
-        
-        return optimized_list
-        
-    except Exception as e:
-        logger.error(f"Error optimizing download links: {e}")
-        return file_list
+                logger.info("Using file list from manual fallback")
+                return response_data2['list']
 
-
-async def get_premium_cdn_link(original_link):
-    """
-    Get premium CDN link for faster downloads
-    """
-    try:
-        parsed_url = urllib.parse.urlparse(original_link)
-        
-        # Premium CDN servers (try in order of preference)
-        premium_cdns = [
-            "premium-dl.terabox.com",
-            "fast-dl.terabox.com", 
-            "cdn-premium.terabox.com",
-            "dl-premium.1024tera.com",
-            "speed.terabox.com",
-            "turbo.terabox.com",
-            "express.1024tera.com"
-        ]
-        
-        # Test each CDN for availability and speed
-        fastest_link = original_link
-        fastest_response_time = float('inf')
-        
-        timeout = aiohttp.ClientTimeout(total=10)
-        
-        async with aiohttp.ClientSession(
-            cookies=my_cookie,
-            timeout=timeout,
-            connector=aiohttp.TCPConnector(ssl=False)
-        ) as session:
-            session.headers.update(my_headers)
-            
-            for cdn in premium_cdns:
-                try:
-                    # Replace hostname with CDN
-                    test_url = original_link.replace(parsed_url.netloc, cdn)
-                    
-                    # Test with HEAD request for speed
-                    start_time = time.time()
-                    async with session.head(test_url, timeout=8) as response:
-                        if response.status in [200, 206, 302, 301]:
-                            response_time = time.time() - start_time
-                            
-                            if response_time < fastest_response_time:
-                                fastest_response_time = response_time
-                                fastest_link = test_url
-                                logger.info(f"🚀 Found faster CDN: {cdn} ({response_time:.2f}s)")
-                            
-                            # If we find a very fast CDN, use it immediately
-                            if response_time < 0.5:
-                                logger.info(f"⚡ Using ultra-fast CDN: {cdn}")
-                                return test_url
-                                
-                except Exception as e:
-                    logger.debug(f"CDN test failed for {cdn}: {e}")
-                    continue
-        
-        # If we found a faster CDN, return it
-        if fastest_link != original_link:
-            logger.info(f"✅ Optimized CDN selected with {fastest_response_time:.2f}s response time")
-        
-        return fastest_link
-        
-    except Exception as e:
-        logger.error(f"Error optimizing CDN link: {e}")
-        return original_link
-
-async def test_download_speed(url, test_duration=5):
-    """
-    Test download speed for a given URL
-    """
-    try:
-        timeout = aiohttp.ClientTimeout(total=test_duration + 5)
-        
-        async with aiohttp.ClientSession(
-            cookies=my_cookie,
-            timeout=timeout,
-            connector=aiohttp.TCPConnector(ssl=False)
-        ) as session:
-            session.headers.update(my_headers)
-            session.headers['Range'] = 'bytes=0-5242880'  # Test with 5MB
-            
-            start_time = time.time()
-            bytes_downloaded = 0
-            
-            async with session.get(url) as response:
-                if response.status in [200, 206]:
-                    async for chunk in response.content.iter_chunked(8192):
-                        bytes_downloaded += len(chunk)
-                        
-                        # Stop after test duration
-                        if time.time() - start_time >= test_duration:
-                            break
-            
-            elapsed_time = time.time() - start_time
-            speed = bytes_downloaded / elapsed_time if elapsed_time > 0 else 0
-            
-            return speed
-            
-    except Exception as e:
-        logger.debug(f"Speed test failed: {e}")
-        return 0
-
-async def get_best_download_server(file_list):
-    """
-    Find the best download server for premium accounts
-    """
-    if not file_list or not IS_PREMIUM_ACCOUNT:
-        return file_list
-    
-    try:
-        optimized_files = []
-        
-        for file_item in file_list:
-            if 'dlink' not in file_item:
-                optimized_files.append(file_item)
-                continue
-            
-            original_link = file_item['dlink']
-            
-            # Test multiple server variations
-            server_variations = [
-                original_link,
-                original_link.replace('d.docs.live.net', 'premium.docs.live.net'),
-                original_link.replace('public.', 'premium.'),
-                original_link.replace('api.', 'premium-api.'),
-                await get_premium_cdn_link(original_link)
-            ]
-            
-            # Remove duplicates
-            server_variations = list(set(server_variations))
-            
-            best_link = original_link
-            best_speed = 0
-            
-            # Test each server variation
-            for server_url in server_variations:
-                try:
-                    speed = await test_download_speed(server_url, test_duration=3)
-                    if speed > best_speed:
-                        best_speed = speed
-                        best_link = server_url
-                        logger.info(f"🚀 Better server found: {format_size(speed)}/s")
-                        
-                except Exception as e:
-                    logger.debug(f"Server test failed: {e}")
-                    continue
-            
-            # Update file item with best link
-            if best_link != original_link:
-                file_item['dlink'] = best_link
-                file_item['optimized_speed'] = best_speed
-                logger.info(f"✅ Optimized server for {file_item.get('server_filename', 'file')}")
-            
-            optimized_files.append(file_item)
-        
-        return optimized_files
-        
-    except Exception as e:
-        logger.error(f"Error finding best download server: {e}")
-        return file_list
-
-# Add global variable for premium account status
-IS_PREMIUM_ACCOUNT = False
-
-# Enhanced initialization function
-async def initialize_premium_system():
-    """
-    Initialize premium system with enhanced detection
-    """
-    global IS_PREMIUM_ACCOUNT
-    
-    try:
-        # Test cookie functionality
-        if my_cookie:
-            # Simple premium detection based on cookie analysis
-            premium_indicators = [
-                'TSID' in my_cookie,
-                'csrfToken' in my_cookie,
-                len(my_cookie.get('browserid', '')) > 50,
-                'ndut_fmt' in my_cookie
-            ]
-            
-            if sum(premium_indicators) >= 3:
-                IS_PREMIUM_ACCOUNT = True
-                logger.info("🚀 PREMIUM ACCOUNT DETECTED!")
-                logger.info(f"Premium indicators found: {sum(premium_indicators)}/4")
-            else:
-                IS_PREMIUM_ACCOUNT = False
-                logger.info("📝 Standard account detected")
-        else:
-            IS_PREMIUM_ACCOUNT = False
-            logger.warning("No cookies configured")
-            
-    except Exception as e:
-        logger.error(f"Error initializing premium system: {e}")
-        IS_PREMIUM_ACCOUNT = False
-
+        except Exception as e:
+            import traceback
+            error_details = repr(e) if str(e) == "" else str(e)
+            logger.error(f"Final fallback failed: {error_details}")
+            logger.debug(f"Error traceback: {traceback.format_exc()}")
+            return None
 
 
 
@@ -3606,7 +2695,6 @@ async def check_dump_channel_access():
     
 async def main():
     global download_count, total_download_size
-    await initialize_premium_system()
     stats_doc = db.get_collection("stats").find_one({"_id": "download_stats"})
     if stats_doc:
         download_count = stats_doc.get("count", 0)
@@ -3637,7 +2725,7 @@ async def main():
     
     # Send startup notification to bot owner
     try:
-        premium_status = "🚀 PREMIUM" if IS_PREMIUM_ACCOUNT else "📝 STANDARD"
+        premium_status = "✅ Premium" if IS_PREMIUM_ACCOUNT else "📝 Free"
         await app.send_message(
             OWNER_ID,
             f"✅ **Bᴏᴛ Sᴛᴀʀᴛᴇᴅ Sᴜᴄᴄᴇssfᴜʟʏ!**\n\n"
@@ -3654,8 +2742,6 @@ async def main():
     
     # Keep the program running
     await idle()
-
-
 
 @app.on_message(filters.command("info"))
 async def user_info_command(client: Client, message: Message):
