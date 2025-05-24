@@ -65,7 +65,7 @@ import os
 
 cookie_string = os.getenv(
     "MY_COOKIE",
-    "browserid=gxgTsJDjvuI2wdvNlBRpFZOYIzJtN12cgF6XjCDuQksNOdqWz-JOR50qeOVuubNBqmAq1pEKeO3Djrbl; lang=en; ndus=Yd6IpupteHuicMq2MDZuh0pwEwiagw0pGOLW7vdT; PANWEB=1; __bid_n=196474843a82acfeb34207; __stripe_mid=bc37a50c-2b5d-4aa1-a136-b5be925f6310bb7fec; csrfToken=dSPLjVzfiF0nSHZJ5HWvGlLA; __stripe_sid=46b4ff54-f627-4cb3-88a1-53d0f776805e8b62c3; ndut_fmt=F9B12A1E4F4BAFCA09D41CA7949F391EC5EF1D1F03386DC84A32F9A3DEEE61B5"
+    "browserid=avLKUlrztrL0C84414VnnfWxLrQ1vJblh4m8WCMxL7TZWIMpPdno52qQb27fk957PE6sUd5VZJ1ATlUe; TSID=DLpCxYPseu0EL2J5S2Hf36yFszAufv2G; ndus=Yd6IpupteHuieos8muZScO1E7xfuRT_csD6LBOF3; csrfToken=mKahcZKmznpDIODk5qQvF1YS; lang=en; __bid_n=1964760716d8bd55e14207; ndut_fmt=B7951F1AB0B1ECA11BDACDA093585A5F0F88DE80879A2413BE32F25A6B71C658"
 )
 # Safe cookie parsing with additional logging for invalid cookies
 if cookie_string:
@@ -304,6 +304,213 @@ from pyrogram.types import Message
 import asyncio
 
 import speedtest
+
+async def validate_premium_cookies_simple(cookies):
+    """
+    Simple and reliable premium cookie validation
+    """
+    result = {
+        'is_premium': False,
+        'account_type': 'free',
+        'method': 'cookie_analysis',
+        'confidence': 'medium',
+        'indicators_found': []
+    }
+    
+    try:
+        # Convert cookies dict to string for analysis
+        cookie_str = str(cookies).lower()
+        
+        # Premium indicators in your cookies
+        premium_indicators = {
+            'tsid_present': 'tsid' in cookies,  # TSID often indicates logged-in premium user
+            'csrf_token': 'csrftoken' in cookies,  # CSRF token suggests authenticated session
+            'browser_id_format': len(cookies.get('browserid', '')) > 50,  # Long browser ID
+            'ndut_fmt_present': 'ndut_fmt' in cookies,  # Format token
+            'bid_present': '__bid_n' in cookies  # Bid number
+        }
+        
+        # Check each indicator
+        found_indicators = []
+        for indicator, condition in premium_indicators.items():
+            if condition:
+                found_indicators.append(indicator)
+        
+        result['indicators_found'] = found_indicators
+        
+        # If we have multiple indicators, likely premium
+        if len(found_indicators) >= 3:
+            result['is_premium'] = True
+            result['account_type'] = 'premium'
+            result['confidence'] = 'high'
+        elif len(found_indicators) >= 2:
+            result['is_premium'] = True
+            result['account_type'] = 'premium'
+            result['confidence'] = 'medium'
+        
+        # Additional checks for premium patterns
+        if cookies.get('TSID') and len(cookies.get('TSID', '')) > 20:
+            result['is_premium'] = True
+            result['account_type'] = 'premium'
+            found_indicators.append('long_tsid')
+        
+        logger.info(f"Cookie analysis: Found {len(found_indicators)} premium indicators: {found_indicators}")
+        
+    except Exception as e:
+        logger.error(f"Error in premium cookie validation: {e}")
+        result['error'] = str(e)
+    
+    return result
+
+async def test_cookie_functionality(cookies):
+    """
+    Test if cookies work by making a simple request
+    """
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(
+            cookies=cookies, 
+            timeout=timeout,
+            connector=aiohttp.TCPConnector(ssl=False)
+        ) as session:
+            session.headers.update(my_headers)
+            
+            # Test with a simple TeraBox page
+            test_url = "https://www.terabox.com/main?category=all"
+            async with session.get(test_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    
+                    # Check if we're logged in (look for user-specific content)
+                    login_indicators = [
+                        'logout' in content.lower(),
+                        'profile' in content.lower(),
+                        'dashboard' in content.lower(),
+                        'my files' in content.lower(),
+                        'upload' in content.lower()
+                    ]
+                    
+                    if any(login_indicators):
+                        logger.info("✅ Cookies are working - user appears to be logged in")
+                        return True
+                    else:
+                        logger.warning("⚠️ Cookies may not be working - no login indicators found")
+                        return False
+                else:
+                    logger.error(f"❌ Cookie test failed - HTTP {response.status}")
+                    return False
+                    
+    except Exception as e:
+        logger.error(f"❌ Cookie functionality test failed: {e}")
+        return False
+
+# Enhanced initialization function
+async def initialize_premium_cookies():
+    """Initialize and validate premium cookies"""
+    global my_cookie, IS_PREMIUM_ACCOUNT
+    
+    cookie_string = os.getenv("MY_COOKIE", "")
+    
+    if not cookie_string:
+        logger.warning("MY_COOKIE not set!")
+        my_cookie = {}
+        IS_PREMIUM_ACCOUNT = False
+        return
+    
+    try:
+        # Parse cookies
+        my_cookie = {}
+        for item in cookie_string.split(";"):
+            item = item.strip()
+            if "=" in item:
+                key, value = item.split("=", 1)
+                my_cookie[key.strip()] = value.strip()
+        
+        if not my_cookie:
+            logger.error("No valid cookies found")
+            IS_PREMIUM_ACCOUNT = False
+            return
+        
+        logger.info(f"Loaded {len(my_cookie)} cookies")
+        
+        # Test cookie functionality
+        cookies_work = await test_cookie_functionality(my_cookie)
+        
+        if cookies_work:
+            logger.info("✅ Cookies are functional")
+            
+            # Check for premium status
+            premium_status = await validate_premium_cookies_simple(my_cookie)
+            
+            if premium_status['is_premium']:
+                logger.info("🚀 PREMIUM COOKIES DETECTED!")
+                logger.info(f"Confidence: {premium_status['confidence']}")
+                logger.info(f"Indicators: {premium_status['indicators_found']}")
+                IS_PREMIUM_ACCOUNT = True
+            else:
+                logger.info("📝 Standard cookies detected")
+                IS_PREMIUM_ACCOUNT = False
+        else:
+            logger.warning("⚠️ Cookies may be expired or invalid")
+            IS_PREMIUM_ACCOUNT = False
+            
+    except Exception as e:
+        logger.error(f"Error initializing cookies: {e}")
+        my_cookie = {}
+        IS_PREMIUM_ACCOUNT = False
+
+# Add command to test cookies
+@app.on_message(filters.command("testcookies") & filters.user(ADMINS))
+async def test_cookies_command(client: Client, message: Message):
+    """Test current cookies and show status"""
+    
+    if not my_cookie:
+        await message.reply_text("❌ No cookies configured!")
+        return
+    
+    status_msg = await message.reply_text("🔍 Testing cookies...")
+    
+    try:
+        # Test functionality
+        cookies_work = await test_cookie_functionality(my_cookie)
+        
+        # Check premium status
+        premium_status = await validate_premium_cookies_simple(my_cookie)
+        
+        status_text = "🍪 **Cookie Test Results**\n\n"
+        
+        # Functionality test
+        if cookies_work:
+            status_text += "✅ **Functionality:** Working\n"
+        else:
+            status_text += "❌ **Functionality:** Not working\n"
+        
+        # Premium status
+        if premium_status['is_premium']:
+            status_text += "🚀 **Account Type:** Premium\n"
+            status_text += f"🎯 **Confidence:** {premium_status['confidence']}\n"
+            status_text += f"📊 **Indicators:** {len(premium_status['indicators_found'])}\n"
+            status_text += f"🔍 **Found:** {', '.join(premium_status['indicators_found'])}\n"
+        else:
+            status_text += "📝 **Account Type:** Free/Standard\n"
+        
+        # Cookie info
+        status_text += f"\n📋 **Cookie Count:** {len(my_cookie)}\n"
+        status_text += f"🕒 **Tested:** {datetime.now().strftime('%H:%M:%S')}\n"
+        
+        # Expected benefits
+        if premium_status['is_premium']:
+            status_text += "\n🎁 **Expected Benefits:**\n"
+            status_text += "• Higher download speeds\n"
+            status_text += "• No download limits\n"
+            status_text += "• Priority server access\n"
+            status_text += "• Multiple concurrent downloads\n"
+        
+        await status_msg.edit_text(status_text)
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error testing cookies: {str(e)}")
+
 
 @app.on_message(filters.command("speedtest"))
 async def speedtest_command(client: Client, message: Message):
@@ -1265,6 +1472,354 @@ async def find_between(text, start, end):
     except IndexError:
         return None
 
+import aiohttp
+import json
+import logging
+from datetime import datetime
+
+async def check_cookie_premium_status(cookies, headers=None):
+    """
+    Check if TeraBox cookies belong to a premium or free account
+    
+    Args:
+        cookies (dict): Cookie dictionary
+        headers (dict): Optional headers to use with request
+    
+    Returns:
+        dict: {
+            'is_premium': bool,
+            'account_type': str,
+            'quota_info': dict,
+            'error': str or None
+        }
+    """
+    
+    if headers is None:
+        headers = my_headers.copy()
+    
+    result = {
+        'is_premium': False,
+        'account_type': 'free',
+        'quota_info': {},
+        'error': None,
+        'checked_at': datetime.now()
+    }
+    
+    try:
+        # Create session with proper error handling
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(
+            cookies=cookies, 
+            timeout=timeout,
+            connector=aiohttp.TCPConnector(ssl=False)
+        ) as session:
+            session.headers.update(headers)
+            
+            # Method 1: Check user info endpoint
+            try:
+                user_info_url = "https://www.terabox.com/api/user/info"
+                async with session.get(user_info_url) as response:
+                    if response.status == 200:
+                        try:
+                            data = await response.json()
+                            
+                            # Check for premium indicators in user info
+                            if 'result' in data and data['result']:
+                                user_data = data['result']
+                                
+                                # Common premium indicators
+                                premium_indicators = [
+                                    user_data.get('is_vip', False),
+                                    user_data.get('is_premium', False),
+                                    user_data.get('vip_type', 0) > 0,
+                                    user_data.get('member_type', 0) > 0,
+                                ]
+                                
+                                # Check account type string
+                                account_type_str = str(user_data.get('account_type', '')).lower()
+                                if 'premium' in account_type_str or 'vip' in account_type_str:
+                                    premium_indicators.append(True)
+                                
+                                if any(premium_indicators):
+                                    result['is_premium'] = True
+                                    result['account_type'] = 'premium'
+                                
+                                # Extract quota information
+                                result['quota_info'] = {
+                                    'total_space': user_data.get('quota', 0),
+                                    'used_space': user_data.get('used', 0),
+                                    'vip_type': user_data.get('vip_type', 0),
+                                    'member_type': user_data.get('member_type', 0)
+                                }
+                                
+                                logger.info(f"User info check: Premium={result['is_premium']}")
+                                return result
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.warning(f"Failed to parse user info response: {e}")
+                    else:
+                        logger.warning(f"User info endpoint returned status: {response.status}")
+            except aiohttp.ClientError as e:
+                logger.warning(f"Failed to check user info endpoint: {e}")
+            
+            # Method 2: Check quota endpoint
+            try:
+                quota_url = "https://www.terabox.com/api/quota"
+                async with session.get(quota_url) as response:
+                    if response.status == 200:
+                        try:
+                            data = await response.json()
+                            
+                            if 'result' in data and data['result']:
+                                quota_data = data['result']
+                                
+                                # Check quota limits (premium usually has higher limits)
+                                total_quota = quota_data.get('total', 0)
+                                
+                                # TeraBox free accounts typically have 1TB (1099511627776 bytes)
+                                # Premium accounts have much higher limits
+                                if total_quota > 1099511627776:  # More than 1TB
+                                    result['is_premium'] = True
+                                    result['account_type'] = 'premium'
+                                
+                                result['quota_info'].update({
+                                    'total_space': total_quota,
+                                    'used_space': quota_data.get('used', 0),
+                                    'free_space': quota_data.get('free', 0)
+                                })
+                                
+                                logger.info(f"Quota check: Premium={result['is_premium']}")
+                                return result
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.warning(f"Failed to parse quota response: {e}")
+                    else:
+                        logger.warning(f"Quota endpoint returned status: {response.status}")
+            except aiohttp.ClientError as e:
+                logger.warning(f"Failed to check quota endpoint: {e}")
+            
+            # Method 3: Cookie analysis (fallback method)
+            if not result['is_premium']:
+                cookie_analysis = analyze_cookies_for_premium(cookies)
+                result.update(cookie_analysis)
+                logger.info(f"Cookie analysis: Premium={result['is_premium']} (confidence: {cookie_analysis.get('confidence', 'low')})")
+                
+    except aiohttp.ClientTimeout:
+        result['error'] = "Request timeout while checking premium status"
+        logger.error("Timeout while checking cookie premium status")
+    except aiohttp.ClientError as e:
+        result['error'] = f"Network error: {str(e)}"
+        logger.error(f"Network error while checking premium status: {e}")
+    except Exception as e:
+        result['error'] = f"Unexpected error: {str(e)}"
+        logger.error(f"Unexpected error while checking premium status: {e}")
+    
+    return result
+
+
+def analyze_cookies_for_premium(cookies):
+    """
+    Analyze cookies for premium indicators (fallback method)
+    
+    Args:
+        cookies (dict): Cookie dictionary
+    
+    Returns:
+        dict: Premium status based on cookie analysis
+    """
+    result = {
+        'is_premium': False,
+        'account_type': 'free',
+        'confidence': 'low'  # Low confidence since this is cookie-based guessing
+    }
+    
+    # Convert cookies to string for analysis
+    cookie_string = str(cookies).lower()
+    
+    # Premium indicators in cookies
+    premium_keywords = [
+        'vip', 'premium', 'pro', 'plus', 'member',
+        'subscription', 'paid', 'upgrade'
+    ]
+    
+    # Check for premium keywords
+    premium_found = any(keyword in cookie_string for keyword in premium_keywords)
+    
+    # Check for specific cookie values that might indicate premium
+    premium_cookies = [
+        cookies.get('member_type', '0') != '0',
+        cookies.get('vip_type', '0') != '0',
+        cookies.get('is_vip', 'false').lower() == 'true',
+        cookies.get('account_type', '').lower() in ['premium', 'vip', 'pro']
+    ]
+    
+    if premium_found or any(premium_cookies):
+        result['is_premium'] = True
+        result['account_type'] = 'premium'
+        result['confidence'] = 'medium'
+    
+    return result
+
+async def validate_and_check_cookies(cookie_string):
+    """
+    Validate cookies and check premium status
+    
+    Args:
+        cookie_string (str): Raw cookie string
+    
+    Returns:
+        dict: Validation and premium check results
+    """
+    result = {
+        'valid': False,
+        'premium_status': None,
+        'error': None
+    }
+    
+    try:
+        # Parse cookies
+        if not cookie_string:
+            result['error'] = "Empty cookie string"
+            return result
+        
+        # Safe cookie parsing with better error handling
+        cookies = {}
+        try:
+            cookie_items = [item.strip() for item in cookie_string.split(";") if item.strip()]
+            for item in cookie_items:
+                if "=" in item:
+                    key, value = item.split("=", 1)
+                    cookies[key.strip()] = value.strip()
+        except (ValueError, AttributeError) as e:
+            result['error'] = f"Cookie parsing error: {str(e)}"
+            return result
+        
+        if not cookies:
+            result['error'] = "No valid cookies found"
+            return result
+        
+        result['valid'] = True
+        
+        # Check premium status
+        try:
+            premium_status = await check_cookie_premium_status(cookies)
+            result['premium_status'] = premium_status
+        except Exception as e:
+            result['error'] = f"Premium status check failed: {str(e)}"
+            logger.error(f"Premium status check error: {e}")
+        
+        # Log results
+        if result['premium_status'] and result['premium_status']['is_premium']:
+            logger.info("✅ Premium cookies detected!")
+            logger.info(f"Account type: {result['premium_status']['account_type']}")
+            if result['premium_status']['quota_info']:
+                total_gb = result['premium_status']['quota_info'].get('total_space', 0) / (1024**3)
+                used_gb = result['premium_status']['quota_info'].get('used_space', 0) / (1024**3)
+                logger.info(f"Storage: {used_gb:.2f}GB / {total_gb:.2f}GB")
+        else:
+            logger.info("ℹ️ Free account cookies detected")
+            if result['premium_status'] and result['premium_status']['error']:
+                logger.warning(f"Premium check error: {result['premium_status']['error']}")
+        
+    except Exception as e:
+        result['error'] = f"Cookie validation error: {str(e)}"
+        logger.error(f"Error validating cookies: {e}")
+    
+    return result
+
+
+async def initialize_cookies():
+    """Initialize and validate cookies with premium checking"""
+    global my_cookie, IS_PREMIUM_ACCOUNT
+    
+    cookie_string = os.getenv("MY_COOKIE", "browserid=avLKUlrztrL0C84414VnnfWxLrQ1vJblh4m8WCMxL7TZWIMpPdno52qQb27fk957PE6sUd5VZJ1ATlUe; TSID=DLpCxYPseu0EL2J5S2Hf36yFszAufv2G; ndus=Yd6IpupteHuieos8muZScO1E7xfuRT_csD6LBOF3; csrfToken=mKahcZKmznpDIODk5qQvF1YS; lang=en; __bid_n=1964760716d8bd55e14207; ndut_fmt=B7951F1AB0B1ECA11BDACDA093585A5F0F88DE80879A2413BE32F25A6B71C658")
+    
+    if not cookie_string:
+        logger.warning("MY_COOKIE not set!")
+        my_cookie = {}
+        IS_PREMIUM_ACCOUNT = False
+        return
+    
+    try:
+        # Safe cookie parsing
+        my_cookie = {}
+        cookie_items = [item.strip() for item in cookie_string.split(";") if item.strip()]
+        for item in cookie_items:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                my_cookie[key.strip()] = value.strip()
+        
+        if not my_cookie:
+            logger.error("No valid cookies found in MY_COOKIE")
+            IS_PREMIUM_ACCOUNT = False
+            return
+        
+        # Validate and check premium status
+        validation_result = await validate_and_check_cookies(cookie_string)
+        
+        if validation_result['valid']:
+            premium_status = validation_result['premium_status']
+            if premium_status and premium_status['is_premium']:
+                logger.info("🚀 Premium cookies loaded - expecting enhanced download speeds!")
+                IS_PREMIUM_ACCOUNT = True
+            else:
+                logger.info("📝 Free account cookies loaded")
+                IS_PREMIUM_ACCOUNT = False
+                
+            if validation_result['error']:
+                logger.warning(f"Cookie validation warning: {validation_result['error']}")
+                
+        else:
+            logger.error(f"Cookie validation failed: {validation_result['error']}")
+            IS_PREMIUM_ACCOUNT = False
+            
+    except Exception as e:
+        logger.error(f"Error initializing cookies: {e}")
+        my_cookie = {}
+        IS_PREMIUM_ACCOUNT = False
+
+
+# Command to check cookie status
+@app.on_message(filters.command("cookiestatus") & filters.user(ADMINS))
+async def check_cookie_status(client: Client, message: Message):
+    """Admin command to check current cookie premium status"""
+    
+    if not my_cookie:
+        await message.reply_text("❌ No cookies configured!")
+        return
+    
+    status_msg = await message.reply_text("🔍 Checking cookie premium status...")
+    
+    try:
+        premium_status = await check_cookie_premium_status(my_cookie)
+        
+        status_text = "🍪 **Cookie Status Report**\n\n"
+        
+        if premium_status['is_premium']:
+            status_text += "✅ **Premium Account Detected!**\n"
+            status_text += f"📊 **Account Type:** {premium_status['account_type'].title()}\n"
+        else:
+            status_text += "📝 **Free Account**\n"
+        
+        if premium_status['quota_info']:
+            quota = premium_status['quota_info']
+            total_gb = quota.get('total_space', 0) / (1024**3)
+            used_gb = quota.get('used_space', 0) / (1024**3)
+            
+            status_text += f"\n💾 **Storage Info:**\n"
+            status_text += f"• Total: {total_gb:.2f} GB\n"
+            status_text += f"• Used: {used_gb:.2f} GB\n"
+            status_text += f"• Free: {(total_gb - used_gb):.2f} GB\n"
+        
+        if premium_status['error']:
+            status_text += f"\n⚠️ **Warning:** {premium_status['error']}\n"
+        
+        status_text += f"\n🕒 **Checked:** {premium_status['checked_at'].strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        await status_msg.edit_text(status_text)
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error checking cookie status: {str(e)}")
+
+
 async def fetch_download_link_async(url):
     encoded_url = urllib.parse.quote(url)
 
@@ -2151,6 +2706,7 @@ async def main():
     # Start the bot
     await app.start()
     logger.info("Bot client started")
+    await initialize_premium_cookies()
     
     # Start user client if available
     if user:
@@ -2169,11 +2725,13 @@ async def main():
     
     # Send startup notification to bot owner
     try:
+        premium_status = "✅ Premium" if IS_PREMIUM_ACCOUNT else "📝 Free"
         await app.send_message(
             OWNER_ID,
             f"✅ **Bᴏᴛ Sᴛᴀʀᴛᴇᴅ Sᴜᴄᴄᴇssfᴜʟʏ!**\n\n"
             f"🕒 **Tɪᴍᴇ:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"🖥️ **Sᴇʀᴠᴇʀ:** {platform.node()}\n"
+            f"🍪 **Aᴄᴄᴏᴜɴᴛ Tʏᴘᴇ:** {premium_status}\n"
             f"💾 **Uѕᴇʀ Sᴇssɪᴏɴ:** {'✅ Aᴄᴛɪᴠᴇ' if USER_SESSION_STRING else '❌ Nᴏᴛ cᴏɴғɪɢᴜʀᴇᴅ'}\n"
             f"🔄 **Mᴀx Uᴘʟᴏᴀᴅ Sɪᴢᴇ:** {format_size(SPLIT_SIZE)}\n\n"
             f"Bᴏᴛ ɪs nᴏᴡ ʀᴇᴀᴅʏ tᴏ prᴏᴄᴇss Tᴇʀᴀbᴏx lɪɴᴋs!"
